@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#102a27">
+    <title>مراجعة شحن البالتات</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="الصفحة الرئيسية" data-i18n-aria="homeLabel">
+          <span class="brand-logo" aria-hidden="true">
+            <span class="brand-noon">noon</span>
+            <span class="brand-minutes">MINUTES</span>
+          </span>
+          <span class="brand-label" data-i18n="brand">مراجعة الشحن</span>
+        </a>
+        <div class="topbar-actions">
+          <button class="language-button" id="languageButton" type="button" aria-label="Switch to English">English</button>
+          <button class="theme-button" id="themeButton" type="button" aria-label="Switch to dark mode">🌙</button>
+          <div class="sync-indicator" id="syncIndicator" role="status">
+            <span class="sync-dot" aria-hidden="true"></span>
+            <span id="syncText">جاري تحميل بيانات الشيت...</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="intro">
+        <p class="eyebrow" data-i18n="introEyebrow">تأكيد البالتات والتوت</p>
+        <h1 data-i18n="introTitle">كل حاجة جاهزة للشحن؟</h1>
+        <p class="intro-copy" data-i18n="introCopy">امسح البالتة، وبعدها امسح كل توت عليها للتأكد إنه تابع لها.</p>
+      </section>
+
+      <div class="notice" id="notice" role="alert" hidden></div>
+
+      <section class="scan-card" id="palletScanCard" aria-labelledby="palletHeading">
+        <div class="step-heading">
+          <span class="step-number" data-i18n="stepOne">١</span>
+          <div>
+            <h2 id="palletHeading" data-i18n="palletHeading">امسح باركود البالتة</h2>
+            <p data-i18n="palletDescription">هنعرض لك التوت المسجل على البالتة دي.</p>
+          </div>
+        </div>
+        <form id="palletForm" class="scan-form">
+          <label class="visually-hidden" for="palletInput" data-i18n="palletLabel">باركود البالتة</label>
+          <input id="palletInput" name="pallet" type="text" placeholder="مثال: FPIA1B1HNLSFJ"
+            data-i18n-placeholder="palletPlaceholder" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+          <button class="button button-primary" type="submit" data-i18n="palletSubmit">تأكيد البالتة</button>
+        </form>
+        <p class="scan-hint" data-i18n="scanHint">استخدم جهاز الاسكانر أو اكتب الكود واضغط Enter.</p>
+      </section>
+
+      <section class="result-card" id="palletResult" aria-live="polite" hidden>
+        <div class="result-header">
+          <div>
+            <p class="eyebrow" data-i18n="currentPallet">البالتة الحالية</p>
+            <h2 id="selectedPallet"></h2>
+            <p class="pallet-subtitle" id="palletDetails"></p>
+          </div>
+          <button class="button button-secondary" id="changePalletButton" type="button" data-i18n="changePallet">تغيير البالتة</button>
+        </div>
+
+        <div class="progress-panel">
+          <div class="progress-copy">
+            <span data-i18n="progressTextLabel">تقدم المسح</span>
+            <strong id="progressText">0 / 0</strong>
+          </div>
+          <div class="progress-track" role="progressbar" aria-label="تقدم مسح التوت" data-i18n-aria="progressLabel"
+            aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" id="progressBar">
+            <span id="progressFill"></span>
+          </div>
+        </div>
+
+        <div class="step-heading container-step-heading">
+          <span class="step-number" data-i18n="stepTwo">٢</span>
+          <div>
+            <h2 data-i18n="containerHeading">امسح باركود التوت</h2>
+            <p data-i18n="containerDescription">التوت الصح هيتعلم بالأخضر، وأي كود مش تابع للبالتة هيظهر كخطأ. لاحقة النسخة زي _v22 مش مطلوبة في الاسكان.</p>
+          </div>
+        </div>
+        <form id="containerForm" class="scan-form">
+          <label class="visually-hidden" for="containerInput" data-i18n="containerLabel">باركود التوت</label>
+          <input id="containerInput" name="container" type="text" placeholder="امسح باركود التوت"
+            data-i18n-placeholder="containerPlaceholder" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+          <button class="button button-primary" type="submit" data-i18n="containerSubmit">فحص التوت</button>
+        </form>
+        <div class="scan-feedback" id="scanFeedback" role="status" aria-live="assertive" hidden></div>
+
+        <div class="list-heading">
+          <h3 data-i18n="containerListHeading">التوت المطلوب</h3>
+          <span id="containerCount" class="count-badge"></span>
+        </div>
+        <ul class="container-list" id="containerList"></ul>
+      </section>
+
+      <footer class="footer">
+        <span id="lastUpdated" data-i18n="lastUpdatedInitial">لم يتم تحديث البيانات بعد</span>
+        <button class="text-button" id="refreshButton" type="button" data-i18n="refresh">تحديث البيانات</button>
+        <a href="https://docs.google.com/spreadsheets/d/1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU/edit?usp=sharing"
+          target="_blank" rel="noreferrer" data-i18n="openSheet">فتح الشيت</a>
+        <span class="designer-credit" data-i18n="designerCredit">تصميم إبراهيم عفيفي</span>
+      </footer>
+    </main>
+    <script src="app.js" defer></script>
+  </body>
+</html>
