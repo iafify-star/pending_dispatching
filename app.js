@@ -1,6 +1,6 @@
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU/export?format=csv";
-const REFRESH_INTERVAL_MS = 60_000;
+const REFRESH_INTERVAL_MS = 10_000;
 const translations = {
   ar: {
     pageTitle: "مراجعة شحن البالتات",
@@ -652,6 +652,10 @@ elements.changePalletButton.addEventListener("click", () => {
 });
 
 elements.refreshButton.addEventListener("click", refreshSheet);
+window.addEventListener("online", refreshSheet);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshSheet();
+});
 
 elements.languageButton.addEventListener("click", () => {
   currentLanguage = currentLanguage === "ar" ? "en" : "ar";
