@@ -1,6 +1,32 @@
 const SPREADSHEET_ID = "1dcIXZEtZD7V5ZUtIMO2lTjkaN_EI7Uq-kKyFoShovlM";
 const LOG_SHEET_NAME = "ScanLog";
+const DATA_SHEET_NAME = "Sheet1";
 const LOG_HEADERS = ["scannedAt", "eventType", "palletBarcode", "containerBarcode"];
+
+function doGet(event) {
+  const parameters = event && event.parameter ? event.parameter : {};
+  const callback = String(parameters.callback || "");
+  if (!/^shippingSheetCallback_\d+_[a-zA-Z0-9_]+$/.test(callback)) {
+    throw new Error("Invalid sheet data callback.");
+  }
+
+  try {
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = spreadsheet.getSheetByName(DATA_SHEET_NAME);
+    if (!sheet) throw new Error(`The ${DATA_SHEET_NAME} tab was not found.`);
+
+    const csv = sheet.getDataRange().getDisplayValues()
+      .map((row) => row.map(escapeCsvValue).join(","))
+      .join("\r\n");
+    return createJsonpResponse(callback, { success: true, csv });
+  } catch (error) {
+    console.error(error);
+    return createJsonpResponse(callback, {
+      success: false,
+      message: error instanceof Error ? error.message : "Could not read the Tracker sheet.",
+    });
+  }
+}
 
 function doPost(event) {
   const parameters = event && event.parameter ? event.parameter : {};
@@ -76,6 +102,16 @@ function validateScan(parameters) {
 
 function asPlainText(value) {
   return /^[=+\-@]/.test(value) ? `'${value}` : value;
+}
+
+function escapeCsvValue(value) {
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+
+function createJsonpResponse(callback, response) {
+  const serializedResponse = JSON.stringify(response).replace(/</g, "\\u003c");
+  return ContentService.createTextOutput(`${callback}(${serializedResponse});`)
+    .setMimeType(ContentService.MimeType.JAVASCRIPT);
 }
 
 function createResponsePage(response) {

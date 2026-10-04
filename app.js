@@ -1,5 +1,3 @@
-const SHEET_CSV_URL =
-  "https://docs.google.com/spreadsheets/d/1dcIXZEtZD7V5ZUtIMO2lTjkaN_EI7Uq-kKyFoShovlM/export?format=csv&gid=0";
 const SCAN_LOG_ENDPOINT = "https://script.google.com/macros/s/AKfycbx7tgA2zzmE7jhvOfXIdwtxLUE1Lanc_1yPefr4geHBHlbTzsP9R_il-mf2hDnx_R4w/exec";
 const REFRESH_INTERVAL_MS = 10_000;
 const translations = {
@@ -48,10 +46,10 @@ const translations = {
     scanLogFailure: "تعذر تسجيل المسح في الشيت؛ لم يتم تأكيده. {message}",
     scanLogTimeout: "انتهت مهلة انتظار رد الشيت. راجع سجل المسح قبل إعادة المحاولة.",
     scanLogUnknownError: "حدث خطأ غير معروف أثناء تسجيل المسح.",
+    sheetDataTimeout: "انتهت مهلة تحميل بيانات الشيت. تحقق من نشر Apps Script ثم حاول التحديث.",
     sheetColumns: "الشيت لازم يحتوي على عمودي palletBarcode و containerBarcode.",
     similarContainers: "في أكواد توت متشابهة بعد حذف لاحقة النسخة على البالتة {pallet}.",
     noValidRows: "الشيت مفيهوش بالتات وكونتينرات صالحة للمسح.",
-    httpError: "تعذر تحميل الشيت (HTTP {status}).",
     unknownError: "حدث خطأ غير معروف أثناء تحميل الشيت.",
     missingPallet: "البالتة الحالية لم تعد موجودة في الشيت بعد التحديث. امسح بالتة موجودة للمتابعة.",
     sheetPermission: "تأكد أن الشيت متاح للعرض لأي شخص لديه الرابط، ثم حاول التحديث.",
@@ -82,7 +80,7 @@ const translations = {
     allScanned: "تمام! كل التوت الـ {count} على البالتة {pallet} اتأكد.",
     containerAccepted: "تمام، التوت {container} تابع للبالتة. باقي {count} توت.",
     palletDetailsFallback: "بيانات البالتة من الشيت",
-    sheetLoadFailure: "{message} تأكد أن الشيت متاح للعرض لأي شخص لديه الرابط، ثم حاول التحديث.",
+    sheetLoadFailure: "{message} راجع إعداد Apps Script وصلاحية الوصول إلى تبويب Sheet1، ثم حاول التحديث.",
   },
   en: {
     pageTitle: "Pallet Shipping Check",
@@ -129,10 +127,10 @@ const translations = {
     scanLogFailure: "Could not log this scan to the spreadsheet, so it was not confirmed. {message}",
     scanLogTimeout: "Timed out waiting for the spreadsheet. Check the scan log before retrying.",
     scanLogUnknownError: "An unknown error occurred while logging the scan.",
+    sheetDataTimeout: "Timed out loading spreadsheet data. Check the Apps Script deployment and try refreshing.",
     sheetColumns: "The spreadsheet must include palletBarcode and containerBarcode columns.",
     similarContainers: "Tote barcodes become ambiguous after removing the version suffix on pallet {pallet}.",
     noValidRows: "The spreadsheet contains no valid pallet and container rows.",
-    httpError: "Could not load the spreadsheet (HTTP {status}).",
     unknownError: "An unknown error occurred while loading the spreadsheet.",
     missingPallet: "The current pallet is no longer in the spreadsheet. Scan an available pallet to continue.",
     sheetPermission: "Make sure the spreadsheet is shared with anyone who has the link as a viewer, then try again.",
@@ -163,7 +161,7 @@ const translations = {
     allScanned: "Done! All {count} totes on pallet {pallet} are confirmed.",
     containerAccepted: "Good, tote {container} belongs to this pallet. {count} remaining.",
     palletDetailsFallback: "Pallet details from spreadsheet",
-    sheetLoadFailure: "{message} Make sure the spreadsheet is shared with anyone who has the link as a viewer, then try again.",
+    sheetLoadFailure: "{message} Check the Apps Script setup and access to the Sheet1 tab, then try again.",
   },
 };
 
@@ -423,6 +421,43 @@ function clearNotice() {
   delete elements.notice.dataset.messageValues;
 }
 
+function loadSheetCsv() {
+  const callbackName = `shippingSheetCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const script = document.createElement("script");
+  const url = new URL(SCAN_LOG_ENDPOINT);
+  url.searchParams.set("action", "sheetData");
+  url.searchParams.set("callback", callbackName);
+  url.searchParams.set("_", String(Date.now()));
+
+  return new Promise((resolve, reject) => {
+    let timeoutId;
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      delete window[callbackName];
+      script.remove();
+    };
+
+    window[callbackName] = (response) => {
+      cleanup();
+      if (!response?.success || typeof response.csv !== "string") {
+        reject(new Error(response?.message || t("unknownError")));
+        return;
+      }
+      resolve(response.csv);
+    };
+    script.onerror = () => {
+      cleanup();
+      reject(new Error(t("unknownError")));
+    };
+    script.src = url.toString();
+    timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error(t("sheetDataTimeout")));
+    }, 30_000);
+    document.head.append(script);
+  });
+}
+
 function submitScanLog(eventType, palletBarcode, containerBarcode = "") {
   if (!SCAN_LOG_ENDPOINT) {
     return Promise.reject(new Error(t("scanLogNotConfigured")));
@@ -509,15 +544,7 @@ async function refreshSheet() {
   elements.refreshButton.disabled = true;
   setSyncState("loading", "loading");
   try {
-    const separator = SHEET_CSV_URL.includes("?") ? "&" : "?";
-    const response = await fetch(`${SHEET_CSV_URL}${separator}_=${Date.now()}`, {
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      throw new Error(t("httpError", { status: response.status }));
-    }
-
-    const sheetData = buildPalletIndex(await response.text());
+    const sheetData = buildPalletIndex(await loadSheetCsv());
     pallets = sheetData.pallets;
     toteAssignments = sheetData.toteAssignments;
     hasFreshSheet = true;
