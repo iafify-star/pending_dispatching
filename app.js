@@ -1,5 +1,5 @@
 const SHEET_CSV_URL =
-  "https://docs.google.com/spreadsheets/d/1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU/export?format=csv";
+  "https://docs.google.com/spreadsheets/d/e/2PACX-1vT9Yksiy5J09GayLgWxxlQStje85b6uJZfhKdxqwcYwQU5svJGyLJ0SssA6YWRTCCPKkymDuyKgtvUp/pub?gid=0&single=true&output=csv";
 const SCAN_LOG_ENDPOINT = "https://script.google.com/macros/s/AKfycbx7tgA2zzmE7jhvOfXIdwtxLUE1Lanc_1yPefr4geHBHlbTzsP9R_il-mf2hDnx_R4w/exec";
 const REFRESH_INTERVAL_MS = 10_000;
 const translations = {
