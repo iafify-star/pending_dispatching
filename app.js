@@ -1,5 +1,6 @@
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU/export?format=csv";
+const SCAN_LOG_ENDPOINT = "https://script.google.com/macros/s/AKfycbx7tgA2zzmE7jhvOfXIdwtxLUE1Lanc_1yPefr4geHBHlbTzsP9R_il-mf2hDnx_R4w/exec";
 const REFRESH_INTERVAL_MS = 10_000;
 const translations = {
   ar: {
@@ -43,6 +44,10 @@ const translations = {
     palletCount: "{count} توت",
     scanned: "تم التأكيد",
     pending: "في انتظار المسح",
+    scanLogNotConfigured: "تسجيل المسح لسه مش متوصل. أضف رابط Apps Script في إعداد SCAN_LOG_ENDPOINT داخل app.js.",
+    scanLogFailure: "تعذر تسجيل المسح في الشيت؛ لم يتم تأكيده. {message}",
+    scanLogTimeout: "انتهت مهلة انتظار رد الشيت. راجع سجل المسح قبل إعادة المحاولة.",
+    scanLogUnknownError: "حدث خطأ غير معروف أثناء تسجيل المسح.",
     sheetColumns: "الشيت لازم يحتوي على عمودي palletBarcode و containerBarcode.",
     similarContainers: "في أكواد توت متشابهة بعد حذف لاحقة النسخة على البالتة {pallet}.",
     noValidRows: "الشيت مفيهوش بالتات وكونتينرات صالحة للمسح.",
@@ -120,6 +125,10 @@ const translations = {
     palletCount: "{count} totes",
     scanned: "Confirmed",
     pending: "Waiting to scan",
+    scanLogNotConfigured: "Scan logging is not configured. Add the Apps Script URL to SCAN_LOG_ENDPOINT in app.js.",
+    scanLogFailure: "Could not log this scan to the spreadsheet, so it was not confirmed. {message}",
+    scanLogTimeout: "Timed out waiting for the spreadsheet. Check the scan log before retrying.",
+    scanLogUnknownError: "An unknown error occurred while logging the scan.",
     sheetColumns: "The spreadsheet must include palletBarcode and containerBarcode columns.",
     similarContainers: "Tote barcodes become ambiguous after removing the version suffix on pallet {pallet}.",
     noValidRows: "The spreadsheet contains no valid pallet and container rows.",
@@ -188,6 +197,7 @@ let toteAssignments = new Map();
 let currentPalletBarcode = "";
 let scannedContainers = new Set();
 let isRefreshing = false;
+let isLoggingScan = false;
 let hasFreshSheet = false;
 let currentLanguage = localStorage.getItem("shipping-check-language") === "en" ? "en" : "ar";
 let currentTheme = localStorage.getItem("shipping-check-theme") === "dark" ? "dark" : "light";
@@ -413,6 +423,78 @@ function clearNotice() {
   delete elements.notice.dataset.messageValues;
 }
 
+function submitScanLog(eventType, palletBarcode, containerBarcode = "") {
+  if (!SCAN_LOG_ENDPOINT) {
+    return Promise.reject(new Error(t("scanLogNotConfigured")));
+  }
+
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return new Promise((resolve, reject) => {
+    const frame = document.createElement("iframe");
+    frame.name = `scan-log-${requestId}`;
+    frame.hidden = true;
+    frame.title = "Scan log response";
+
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = SCAN_LOG_ENDPOINT;
+    form.target = frame.name;
+    form.hidden = true;
+
+    const fields = {
+      eventType,
+      palletBarcode,
+      containerBarcode,
+      requestId,
+    };
+    for (const [name, value] of Object.entries(fields)) {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = name;
+      input.value = value;
+      form.append(input);
+    }
+
+    let timeoutId;
+    const finish = (error) => {
+      window.removeEventListener("message", handleMessage);
+      window.clearTimeout(timeoutId);
+      frame.remove();
+      form.remove();
+      if (error) reject(error);
+      else resolve();
+    };
+    const handleMessage = (event) => {
+      if (event.source !== frame.contentWindow) return;
+      const response = event.data;
+      if (
+        !response ||
+        response.source !== "shipping-scan-log" ||
+        response.requestId !== requestId
+      ) {
+        return;
+      }
+      if (response.success) {
+        finish();
+      } else {
+        finish(new Error(response.message || t("scanLogUnknownError")));
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    timeoutId = window.setTimeout(
+      () => finish(new Error(t("scanLogTimeout"))),
+      30_000,
+    );
+    document.body.append(frame, form);
+    try {
+      form.submit();
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(t("scanLogUnknownError")));
+    }
+  });
+}
+
 function formatTime(date) {
   return new Intl.DateTimeFormat(currentLanguage === "ar" ? "ar-EG" : "en-GB", {
     hour: "2-digit",
@@ -561,8 +643,9 @@ function renderScanFeedback() {
   elements.scanFeedback.append(assignmentList);
 }
 
-elements.palletForm.addEventListener("submit", (event) => {
+elements.palletForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (isLoggingScan) return;
   if (!hasFreshSheet) {
     showNotice("freshRequiredPallet");
     return;
@@ -582,6 +665,22 @@ elements.palletForm.addEventListener("submit", (event) => {
   }
 
   clearNotice();
+  const submitButton = elements.palletForm.querySelector('button[type="submit"]');
+  isLoggingScan = true;
+  submitButton.disabled = true;
+  try {
+    await submitScanLog("pallet", pallet.barcode);
+  } catch (error) {
+    showNotice("scanLogFailure", {
+      message: error instanceof Error ? error.message : t("scanLogUnknownError"),
+    });
+    elements.palletInput.select();
+    return;
+  } finally {
+    isLoggingScan = false;
+    submitButton.disabled = false;
+  }
+
   currentPalletBarcode = pallet.barcode;
   scannedContainers.clear();
   elements.palletInput.value = "";
@@ -591,25 +690,28 @@ elements.palletForm.addEventListener("submit", (event) => {
   elements.containerInput.focus();
 });
 
-elements.containerForm.addEventListener("submit", (event) => {
+elements.containerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (isLoggingScan) return;
   const scannedBarcode = elements.containerInput.value.trim();
-  elements.containerInput.value = "";
   if (!scannedBarcode) return;
 
   if (!hasFreshSheet) {
+    elements.containerInput.value = "";
     showScanFeedback("freshRequiredContainer", {}, "error");
     return;
   }
 
   const pallet = pallets.get(normalizeBarcode(currentPalletBarcode));
   if (!pallet) {
+    elements.containerInput.value = "";
     showScanFeedback("unavailablePallet", {}, "error");
     return;
   }
 
   const normalizedCode = containerMatchKey(scannedBarcode);
   if (!pallet.containers.has(normalizedCode)) {
+    elements.containerInput.value = "";
     const assignments = toteAssignments.get(normalizedCode) ?? [];
     if (assignments.length) {
       showScanFeedback(
@@ -624,10 +726,30 @@ elements.containerForm.addEventListener("submit", (event) => {
   }
 
   if (scannedContainers.has(normalizedCode)) {
+    elements.containerInput.value = "";
     showScanFeedback("duplicateContainer", { container: scannedBarcode }, "warning");
     return;
   }
 
+  const submitButton = elements.containerForm.querySelector('button[type="submit"]');
+  isLoggingScan = true;
+  submitButton.disabled = true;
+  try {
+    await submitScanLog("tote", pallet.barcode, scannedBarcode);
+  } catch (error) {
+    showScanFeedback(
+      "scanLogFailure",
+      { message: error instanceof Error ? error.message : t("scanLogUnknownError") },
+      "error",
+    );
+    elements.containerInput.select();
+    return;
+  } finally {
+    isLoggingScan = false;
+    submitButton.disabled = false;
+  }
+
+  elements.containerInput.value = "";
   scannedContainers.add(normalizedCode);
   renderPallet(pallet);
   const remaining = pallet.containers.size - scannedContainers.size;
