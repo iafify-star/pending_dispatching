@@ -16,7 +16,7 @@ python -m http.server 8000
 
 ## مصدر البيانات
 
-تُقرأ بيانات البالتات والتوت من تبويب `Sheet1` المنشور في [Tracker](https://docs.google.com/spreadsheets/d/e/2PACX-1vT9Yksiy5J09GayLgWxxlQStje85b6uJZfhKdxqwcYwQU5svJGyLJ0SssA6YWRTCCPKkymDuyKgtvUp/pubhtml?gid=0&single=true)، ويُفترض أن يحتوي على العمودين `palletBarcode` و`containerBarcode`. يتم التحقق من تحديثات الشيت تلقائيًا كل 10 ثوانٍ، ويُعاد جلب البيانات فور رجوع الاتصال أو فتح تبويب الموقع، ويمكن التحديث يدويًا. يعتمد ظهور أي تعديل على إتاحته من تصدير Google Sheets المنشور؛ هذا فحص دوري وليس بثًا لحظيًا لكل تغيير.
+تُقرأ بيانات البالتات والتوت من تبويب `Sheet1` في [Tracker](https://docs.google.com/spreadsheets/d/1dcIXZEtZD7V5ZUtIMO2lTjkaN_EI7Uq-kKyFoShovlM/edit?gid=0#gid=0)، عبر تصدير CSV، ويجب أن يكون الملف متاحًا للعرض لأي شخص لديه الرابط. يحتوي التبويب على العمودين `palletBarcode` و`containerBarcode`. يتم التحقق من تحديثات الشيت تلقائيًا كل 10 ثوانٍ، ويُعاد جلب البيانات فور رجوع الاتصال أو فتح تبويب الموقع، ويمكن التحديث يدويًا. هذا فحص دوري وليس بثًا لحظيًا لكل تغيير.
 
 الصفوف المتكررة لنفس البالتة والتوت تُعرض مرة واحدة. عند فحص التوت، تُتجاهل لاحقة النسخة من شكل `_v22` في الشيت، لذلك يكفي مسح الكود الأساسي مثل `TGI64D09HAXEEG`.
 
