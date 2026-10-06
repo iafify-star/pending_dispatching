@@ -1,4 +1,4 @@
-const SPREADSHEET_ID = "1dcIXZEtZD7V5ZUtIMO2lTjkaN_EI7Uq-kKyFoShovlM";
+const SPREADSHEET_ID = "1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU";
 const LOG_SHEET_NAME = "ScanLog";
 const DATA_SHEET_NAME = "Sheet1";
 const LOG_HEADERS = ["scannedAt", "eventType", "palletBarcode", "containerBarcode"];
@@ -23,7 +23,7 @@ function doGet(event) {
     console.error(error);
     return createJsonpResponse(callback, {
       success: false,
-      message: error instanceof Error ? error.message : "Could not read the Tracker sheet.",
+      message: error instanceof Error ? error.message : "Could not read the pending_dispatching sheet.",
     });
   }
 }
