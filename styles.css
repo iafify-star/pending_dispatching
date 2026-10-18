@@ -284,6 +284,23 @@ h1 {
   color: #9aa6a1;
 }
 
+.reviewer-field {
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reviewer-field input {
+  direction: inherit;
+  text-align: start;
+  unicode-bidi: plaintext;
+}
+
 .button {
   min-height: 44px;
   padding: 0 16px;

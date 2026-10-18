@@ -25,6 +25,10 @@ const translations = {
     palletLabel: "باركود البالتة",
     palletPlaceholder: "مثال: FPIA1B1HNLSFJ",
     palletSubmit: "تأكيد البالتة",
+    reviewerLabel: "اسم المراجع",
+    reviewerPlaceholder: "اكتب اسمك",
+    reviewerRequired: "اكتب اسم المراجع الأول قبل ما تسكان البالتة.",
+    reviewerDetail: "المراجع: {name}",
     scanHint: "استخدم جهاز الاسكانر أو اكتب الكود واضغط Enter.",
     currentPallet: "البالتة الحالية",
     changePallet: "تغيير البالتة",
@@ -108,6 +112,10 @@ const translations = {
     palletLabel: "Pallet barcode",
     palletPlaceholder: "Example: FPIA1B1HNLSFJ",
     palletSubmit: "Confirm pallet",
+    reviewerLabel: "Reviewer name",
+    reviewerPlaceholder: "Type your name",
+    reviewerRequired: "Enter the reviewer name before scanning a pallet.",
+    reviewerDetail: "Reviewer: {name}",
     scanHint: "Use a barcode scanner, or type the code and press Enter.",
     currentPallet: "Current pallet",
     changePallet: "Change pallet",
@@ -185,6 +193,7 @@ const elements = {
   scanLogText: document.querySelector("#scanLogText"),
   notice: document.querySelector("#notice"),
   palletScanCard: document.querySelector("#palletScanCard"),
+  reviewerInput: document.querySelector("#reviewerInput"),
   palletForm: document.querySelector("#palletForm"),
   palletInput: document.querySelector("#palletInput"),
   palletResult: document.querySelector("#palletResult"),
@@ -213,6 +222,7 @@ let scanLogQueue = loadScanLogQueue();
 let isSendingScanLog = false;
 let scanLogRetryTimer = 0;
 let scanLogError = "";
+let reviewerName = (localStorage.getItem("shipping-check-reviewer") || "").trim();
 let currentLanguage = localStorage.getItem("shipping-check-language") === "en" ? "en" : "ar";
 let currentTheme = localStorage.getItem("shipping-check-theme") === "dark" ? "dark" : "light";
 
@@ -477,6 +487,7 @@ function queueScanLog(eventType, pallet, containerBarcode = "") {
     palletBarcode: pallet.barcode,
     containerBarcode,
     branch: pallet.destination,
+    reviewer: reviewerName,
     scannedAt: new Date().toISOString(),
   });
   saveScanLogQueue();
@@ -606,7 +617,9 @@ function renderPallet(pallet) {
   elements.palletResult.hidden = false;
   elements.selectedPallet.textContent = pallet.barcode;
   const details = [pallet.location, pallet.destination].filter(Boolean);
-  elements.palletDetails.textContent = details.length ? details.join(" · ") : t("palletDetailsFallback");
+  if (!details.length) details.push(t("palletDetailsFallback"));
+  if (reviewerName) details.push(t("reviewerDetail", { name: reviewerName }));
+  elements.palletDetails.textContent = details.join(" · ");
   elements.containerCount.textContent = t("palletCount", { count: pallet.containers.size });
 
   const list = document.createDocumentFragment();
@@ -693,6 +706,11 @@ elements.palletForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (!hasFreshSheet) {
     showNotice("freshRequiredPallet");
+    return;
+  }
+  if (!reviewerName) {
+    showNotice("reviewerRequired");
+    elements.reviewerInput.focus();
     return;
   }
 
@@ -785,6 +803,19 @@ elements.changePalletButton.addEventListener("click", () => {
   elements.palletInput.focus();
 });
 
+elements.reviewerInput.addEventListener("input", () => {
+  reviewerName = elements.reviewerInput.value.trim();
+  localStorage.setItem("shipping-check-reviewer", reviewerName);
+  if (reviewerName && elements.notice.dataset.messageKey === "reviewerRequired") clearNotice();
+});
+
+// Enter moves on to the pallet field, so the next scan lands in the right place.
+elements.reviewerInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  if (reviewerName) elements.palletInput.focus();
+});
+
 elements.refreshButton.addEventListener("click", refreshSheet);
 window.addEventListener("online", refreshSheet);
 window.addEventListener("online", sendScanLogQueue);
@@ -804,6 +835,7 @@ elements.themeButton.addEventListener("click", () => {
   applyTheme();
 });
 
+elements.reviewerInput.value = reviewerName;
 applyTheme();
 refreshSheet();
 sendScanLogQueue();

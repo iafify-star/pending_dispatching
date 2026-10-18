@@ -1,8 +1,8 @@
 const SPREADSHEET_ID = "1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU";
 const LOG_SHEET_NAME = "pallet_scan";
 const DATA_SHEET_NAME = "dispatching";
-const LOG_HEADERS = ["Scan date", "Scan time", "Type", "Pallet", "Tote", "Branch"];
-const LOG_NUMBER_FORMATS = ["yyyy-mm-dd", "hh:mm:ss", "@", "@", "@", "@"];
+const LOG_HEADERS = ["Scan date", "Scan time", "Type", "Pallet", "Tote", "Branch", "Reviewer"];
+const LOG_NUMBER_FORMATS = ["yyyy-mm-dd", "hh:mm:ss", "@", "@", "@", "@", "@"];
 const PALLET_ROW_COLOR = "#fff2cc";
 const TOTE_DETAIL_COLOR = "#888888";
 const TEXT_COLOR = "#000000";
@@ -80,6 +80,7 @@ function validateScan(parameters) {
   const palletBarcode = String(parameters.palletBarcode || "").trim();
   const containerBarcode = String(parameters.containerBarcode || "").trim();
   const branch = String(parameters.branch || "").trim().slice(0, 200);
+  const reviewer = String(parameters.reviewer || "").trim().slice(0, 100);
 
   if (eventType !== "pallet" && eventType !== "tote") {
     throw new Error("Invalid scan type.");
@@ -99,6 +100,7 @@ function validateScan(parameters) {
     palletBarcode,
     containerBarcode,
     branch,
+    reviewer,
     scannedAt: parseScanTime(parameters.scannedAt),
   };
 }
@@ -183,10 +185,11 @@ function writeScanRow(sheet, row, scan) {
       asPlainText(scan.palletBarcode),
       asPlainText(scan.containerBarcode),
       asPlainText(scan.branch),
+      asPlainText(scan.reviewer),
     ]])
     .setFontWeight(isPallet ? "bold" : "normal")
     .setBackground(isPallet ? PALLET_ROW_COLOR : null)
-    .setFontColors([[TEXT_COLOR, TEXT_COLOR, TEXT_COLOR, detailColor, TEXT_COLOR, detailColor]]);
+    .setFontColors([[TEXT_COLOR, TEXT_COLOR, TEXT_COLOR, detailColor, TEXT_COLOR, detailColor, detailColor]]);
 }
 
 function asPlainText(value) {
