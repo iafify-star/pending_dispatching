@@ -1,6 +1,12 @@
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU/export?format=csv&gid=0";
 const REFRESH_INTERVAL_MS = 10_000;
+// Apps Script web app (google-apps-script.gs) that writes scans to the pallet_scan tab.
+const SCAN_LOG_ENDPOINT =
+  "https://script.google.com/macros/s/AKfycbyZ5l9bzoskwKvYpLX13GYKhdugNnIa99PXemHHxj1TVUdGvpBG3YAclBvq6tFmJqg1/exec";
+const SCAN_LOG_QUEUE_KEY = "shipping-scan-log-queue";
+const SCAN_LOG_RETRY_MS = 10_000;
+const SCAN_LOG_TIMEOUT_MS = 30_000;
 const translations = {
   ar: {
     pageTitle: "مراجعة شحن البالتات",
@@ -43,6 +49,13 @@ const translations = {
     palletCount: "{count} توت",
     scanned: "تم التأكيد",
     pending: "في انتظار المسح",
+    scanLogSaved: "كل الاسكانات اتسجلت في الشيت",
+    scanLogSaving: "جاري تسجيل {count} اسكان في الشيت...",
+    scanLogRetrying: "{count} اسكان لسه متسجلوش في الشيت، هنحاول تاني",
+    scanLogNotConfigured: "تسجيل الاسكان في الشيت لسه مش متوصل",
+    scanLogHttpError: "تعذر الوصول لسكربت الشيت (HTTP {status}).",
+    scanLogTimeout: "انتهت مهلة انتظار رد الشيت.",
+    scanLogUnknownError: "حدث خطأ غير معروف أثناء تسجيل الاسكان.",
     sheetHttpError: "تعذر تحميل بيانات الشيت (HTTP {status}).",
     sheetColumns: "الشيت لازم يحتوي على عمودي palletBarcode و containerBarcode.",
     similarContainers: "في أكواد توت متشابهة بعد حذف لاحقة النسخة على البالتة {pallet}.",
@@ -120,6 +133,13 @@ const translations = {
     palletCount: "{count} totes",
     scanned: "Confirmed",
     pending: "Waiting to scan",
+    scanLogSaved: "All scans saved to the sheet",
+    scanLogSaving: "Saving {count} scans to the sheet...",
+    scanLogRetrying: "{count} scans not saved to the sheet yet. Retrying.",
+    scanLogNotConfigured: "Saving scans to the sheet is not set up",
+    scanLogHttpError: "Could not reach the sheet script (HTTP {status}).",
+    scanLogTimeout: "Timed out waiting for the sheet.",
+    scanLogUnknownError: "An unknown error occurred while saving the scan.",
     sheetHttpError: "Could not load spreadsheet data (HTTP {status}).",
     sheetColumns: "The spreadsheet must include palletBarcode and containerBarcode columns.",
     similarContainers: "Tote barcodes become ambiguous after removing the version suffix on pallet {pallet}.",
@@ -163,6 +183,8 @@ const elements = {
   themeButton: document.querySelector("#themeButton"),
   syncIndicator: document.querySelector("#syncIndicator"),
   syncText: document.querySelector("#syncText"),
+  scanLogIndicator: document.querySelector("#scanLogIndicator"),
+  scanLogText: document.querySelector("#scanLogText"),
   notice: document.querySelector("#notice"),
   palletScanCard: document.querySelector("#palletScanCard"),
   palletForm: document.querySelector("#palletForm"),
@@ -189,6 +211,10 @@ let currentPalletBarcode = "";
 let scannedContainers = new Set();
 let isRefreshing = false;
 let hasFreshSheet = false;
+let scanLogQueue = loadScanLogQueue();
+let isSendingScanLog = false;
+let scanLogRetryTimer = 0;
+let scanLogError = "";
 let currentLanguage = localStorage.getItem("shipping-check-language") === "en" ? "en" : "ar";
 let currentTheme = localStorage.getItem("shipping-check-theme") === "dark" ? "dark" : "light";
 
@@ -214,6 +240,7 @@ function applyLanguage() {
   elements.themeButton.textContent = currentTheme === "dark" ? "☀️" : "🌙";
   elements.themeButton.setAttribute("aria-label", t(currentTheme === "dark" ? "themeLight" : "themeDark"));
   elements.syncText.textContent = t(elements.syncIndicator.dataset.messageKey || "loadingInitial");
+  renderScanLogState();
   if (elements.lastUpdated.dataset.updateTime) {
     elements.lastUpdated.textContent = t("latestUpdate", {
       time: formatTime(new Date(elements.lastUpdated.dataset.updateTime)),
@@ -425,6 +452,105 @@ function loadSheetCsv() {
   });
 }
 
+function loadScanLogQueue() {
+  try {
+    const queue = JSON.parse(localStorage.getItem(SCAN_LOG_QUEUE_KEY) || "[]");
+    return Array.isArray(queue) ? queue : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveScanLogQueue() {
+  try {
+    localStorage.setItem(SCAN_LOG_QUEUE_KEY, JSON.stringify(scanLogQueue));
+  } catch {
+    // Storage can be full or blocked; the queue still lives in memory for this page.
+  }
+}
+
+// Scans wait in a saved queue and go to the sheet one at a time, in scan order,
+// so a slow or offline connection never holds up scanning.
+function queueScanLog(eventType, pallet, containerBarcode = "") {
+  if (!SCAN_LOG_ENDPOINT) return;
+  scanLogQueue.push({
+    requestId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    eventType,
+    palletBarcode: pallet.barcode,
+    containerBarcode,
+    branch: pallet.destination,
+    scannedAt: new Date().toISOString(),
+  });
+  saveScanLogQueue();
+  renderScanLogState();
+  sendScanLogQueue();
+}
+
+async function sendScanLogQueue() {
+  if (isSendingScanLog || !SCAN_LOG_ENDPOINT) return;
+  window.clearTimeout(scanLogRetryTimer);
+  isSendingScanLog = true;
+  try {
+    while (scanLogQueue.length) {
+      renderScanLogState();
+      await postScanLog(scanLogQueue[0]);
+      scanLogQueue.shift();
+      saveScanLogQueue();
+      scanLogError = "";
+    }
+  } catch (error) {
+    scanLogError = error instanceof Error ? error.message : t("scanLogUnknownError");
+    scanLogRetryTimer = window.setTimeout(sendScanLogQueue, SCAN_LOG_RETRY_MS);
+  } finally {
+    isSendingScanLog = false;
+    renderScanLogState();
+  }
+}
+
+async function postScanLog(entry) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), SCAN_LOG_TIMEOUT_MS);
+  try {
+    const response = await fetch(SCAN_LOG_ENDPOINT, {
+      method: "POST",
+      body: new URLSearchParams(entry),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(t("scanLogHttpError", { status: response.status }));
+    }
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.message || t("scanLogUnknownError"));
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(t("scanLogTimeout"));
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function renderScanLogState() {
+  let state = "ok";
+  let messageKey = "scanLogSaved";
+  if (!SCAN_LOG_ENDPOINT) {
+    state = "idle";
+    messageKey = "scanLogNotConfigured";
+  } else if (scanLogError) {
+    state = "error";
+    messageKey = "scanLogRetrying";
+  } else if (scanLogQueue.length) {
+    state = "loading";
+    messageKey = "scanLogSaving";
+  }
+  elements.scanLogIndicator.dataset.state = state;
+  elements.scanLogIndicator.title = scanLogError;
+  elements.scanLogText.textContent = t(messageKey, { count: scanLogQueue.length });
+}
+
 function formatTime(date) {
   return new Intl.DateTimeFormat(currentLanguage === "ar" ? "ar-EG" : "en-GB", {
     hour: "2-digit",
@@ -592,6 +718,7 @@ elements.palletForm.addEventListener("submit", (event) => {
   elements.palletScanCard.hidden = true;
   elements.scanFeedback.hidden = true;
   renderPallet(pallet);
+  queueScanLog("pallet", pallet);
   elements.containerInput.focus();
 });
 
@@ -638,6 +765,7 @@ elements.containerForm.addEventListener("submit", (event) => {
   elements.containerInput.value = "";
   scannedContainers.add(normalizedCode);
   renderPallet(pallet);
+  queueScanLog("tote", pallet, pallet.containers.get(normalizedCode));
   const remaining = pallet.containers.size - scannedContainers.size;
   showScanFeedback(
     remaining === 0
@@ -661,6 +789,7 @@ elements.changePalletButton.addEventListener("click", () => {
 
 elements.refreshButton.addEventListener("click", refreshSheet);
 window.addEventListener("online", refreshSheet);
+window.addEventListener("online", sendScanLogQueue);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") refreshSheet();
 });
@@ -679,4 +808,5 @@ elements.themeButton.addEventListener("click", () => {
 
 applyTheme();
 refreshSheet();
+sendScanLogQueue();
 window.setInterval(refreshSheet, REFRESH_INTERVAL_MS);

@@ -1,7 +1,14 @@
 const SPREADSHEET_ID = "1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU";
-const LOG_SHEET_NAME = "ScanLog";
-const DATA_SHEET_NAME = "Sheet1";
-const LOG_HEADERS = ["scannedAt", "eventType", "palletBarcode", "containerBarcode"];
+const LOG_SHEET_NAME = "pallet_scan";
+const DATA_SHEET_NAME = "dispatching";
+const LOG_HEADERS = ["Scan date", "Scan time", "Type", "Pallet", "Tote", "Branch"];
+const LOG_NUMBER_FORMATS = ["yyyy-mm-dd", "hh:mm:ss", "@", "@", "@", "@"];
+const PALLET_ROW_COLOR = "#fff2cc";
+const TOTE_DETAIL_COLOR = "#888888";
+const TEXT_COLOR = "#000000";
+const MAX_SCAN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const REQUEST_CACHE_SECONDS = 6 * 60 * 60;
 
 function doGet(event) {
   const parameters = event && event.parameter ? event.parameter : {};
@@ -42,25 +49,18 @@ function doPost(event) {
     lock = LockService.getScriptLock();
     lock.waitLock(10000);
 
-    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    let sheet = spreadsheet.getSheetByName(LOG_SHEET_NAME);
-    if (!sheet) sheet = spreadsheet.insertSheet(LOG_SHEET_NAME);
-
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(LOG_HEADERS);
-    } else {
-      const headers = sheet.getRange(1, 1, 1, LOG_HEADERS.length).getDisplayValues()[0];
-      if (LOG_HEADERS.some((header, index) => headers[index] !== header)) {
-        throw new Error(`The ${LOG_SHEET_NAME} tab has unexpected columns.`);
+    // The site retries a scan when it misses the reply, so skip requests already written.
+    const cache = CacheService.getScriptCache();
+    if (!cache.get(requestId)) {
+      const sheet = getLogSheet();
+      if (scan.eventType === "pallet") {
+        writeScanRow(sheet, sheet.getLastRow() + 1, scan);
+      } else {
+        writeToteRow(sheet, scan);
       }
+      SpreadsheetApp.flush();
+      cache.put(requestId, "1", REQUEST_CACHE_SECONDS);
     }
-
-    sheet.appendRow([
-      new Date().toISOString(),
-      scan.eventType,
-      asPlainText(scan.palletBarcode),
-      asPlainText(scan.containerBarcode),
-    ]);
     response = { success: true };
   } catch (error) {
     console.error(error);
@@ -72,17 +72,14 @@ function doPost(event) {
     if (lock && lock.hasLock()) lock.releaseLock();
   }
 
-  return createResponsePage({
-    source: "shipping-scan-log",
-    requestId,
-    ...response,
-  });
+  return createJsonResponse({ requestId, ...response });
 }
 
 function validateScan(parameters) {
   const eventType = String(parameters.eventType || "");
   const palletBarcode = String(parameters.palletBarcode || "").trim();
   const containerBarcode = String(parameters.containerBarcode || "").trim();
+  const branch = String(parameters.branch || "").trim().slice(0, 200);
 
   if (eventType !== "pallet" && eventType !== "tote") {
     throw new Error("Invalid scan type.");
@@ -97,7 +94,99 @@ function validateScan(parameters) {
     throw new Error("A pallet scan cannot include a tote barcode.");
   }
 
-  return { eventType, palletBarcode, containerBarcode };
+  return {
+    eventType,
+    palletBarcode,
+    containerBarcode,
+    branch,
+    scannedAt: parseScanTime(parameters.scannedAt),
+  };
+}
+
+// Use the time the scan happened on the device, unless it is missing or implausible.
+function parseScanTime(value) {
+  const now = Date.now();
+  const scannedAt = new Date(String(value || ""));
+  const time = scannedAt.getTime();
+  if (Number.isNaN(time) || time > now + MAX_CLOCK_SKEW_MS || now - time > MAX_SCAN_AGE_MS) {
+    return new Date(now);
+  }
+  return scannedAt;
+}
+
+function getLogSheet() {
+  const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = spreadsheet.getSheetByName(LOG_SHEET_NAME);
+  if (!sheet) sheet = spreadsheet.insertSheet(LOG_SHEET_NAME);
+
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, LOG_HEADERS.length)
+      .setValues([LOG_HEADERS])
+      .setFontWeight("bold")
+      .setBackground("#d9d9d9");
+    sheet.setFrozenRows(1);
+  } else {
+    const headers = sheet.getRange(1, 1, 1, LOG_HEADERS.length).getDisplayValues()[0];
+    if (LOG_HEADERS.some((header, index) => headers[index] !== header)) {
+      throw new Error(`The ${LOG_SHEET_NAME} tab has unexpected columns.`);
+    }
+  }
+  return sheet;
+}
+
+// Put the tote under its pallet's latest block, so each pallet's totes stay together
+// even when several devices are scanning at once.
+function writeToteRow(sheet, scan) {
+  const lastRow = sheet.getLastRow();
+  const palletKey = scan.palletBarcode.toUpperCase();
+  let blockEndRow = 0;
+
+  if (lastRow > 1) {
+    const rows = sheet.getRange(2, 3, lastRow - 1, 2).getDisplayValues();
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      if (rows[index][0] !== "Pallet" || rows[index][1].toUpperCase() !== palletKey) continue;
+
+      let endIndex = index;
+      while (
+        endIndex + 1 < rows.length &&
+        rows[endIndex + 1][0] === "Tote" &&
+        rows[endIndex + 1][1].toUpperCase() === palletKey
+      ) {
+        endIndex += 1;
+      }
+      blockEndRow = endIndex + 2;
+      break;
+    }
+  }
+
+  if (!blockEndRow || blockEndRow === lastRow) {
+    writeScanRow(sheet, lastRow + 1, scan);
+    return;
+  }
+  sheet.insertRowAfter(blockEndRow);
+  writeScanRow(sheet, blockEndRow + 1, scan);
+}
+
+function writeScanRow(sheet, row, scan) {
+  if (row > sheet.getMaxRows()) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), row - sheet.getMaxRows());
+  }
+
+  const isPallet = scan.eventType === "pallet";
+  const detailColor = isPallet ? TEXT_COLOR : TOTE_DETAIL_COLOR;
+  sheet.getRange(row, 1, 1, LOG_HEADERS.length)
+    .setNumberFormats([LOG_NUMBER_FORMATS])
+    .setValues([[
+      scan.scannedAt,
+      scan.scannedAt,
+      isPallet ? "Pallet" : "Tote",
+      asPlainText(scan.palletBarcode),
+      asPlainText(scan.containerBarcode),
+      asPlainText(scan.branch),
+    ]])
+    .setFontWeight(isPallet ? "bold" : "normal")
+    .setBackground(isPallet ? PALLET_ROW_COLOR : null)
+    .setFontColors([[TEXT_COLOR, TEXT_COLOR, TEXT_COLOR, detailColor, TEXT_COLOR, detailColor]]);
 }
 
 function asPlainText(value) {
@@ -114,12 +203,7 @@ function createJsonpResponse(callback, response) {
     .setMimeType(ContentService.MimeType.JAVASCRIPT);
 }
 
-function createResponsePage(response) {
-  const serializedResponse = JSON.stringify(response).replace(/</g, "\\u003c");
-  const html = `<!doctype html><html><body><script>
-    window.parent.postMessage(${serializedResponse}, "*");
-  </script></body></html>`;
-
-  return HtmlService.createHtmlOutput(html)
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+function createJsonResponse(response) {
+  return ContentService.createTextOutput(JSON.stringify(response))
+    .setMimeType(ContentService.MimeType.JSON);
 }

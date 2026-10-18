@@ -172,6 +172,10 @@ a {
   background: var(--red);
 }
 
+.sync-indicator[data-state="idle"] .sync-dot {
+  background: var(--muted);
+}
+
 .intro {
   padding: 47px 0 27px;
 }
