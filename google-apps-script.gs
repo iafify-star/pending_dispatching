@@ -2,7 +2,7 @@ const SPREADSHEET_ID = "1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU";
 const LOG_SHEET_NAME = "pallet_scan";
 const DATA_SHEET_NAME = "dispatching";
 const HISTORY_SHEET_NAME = "dispatching_history";
-// Column F (Scan time) is a formula in the sheet, so the script writes only these columns.
+// Columns F and G (Review time, Dispatch time) are formulas in the sheet, so the script writes only these columns.
 const HISTORY_HEADERS = ["Pallet", "Tote", "Branch", "Staging location", "Pallet created"];
 const HISTORY_NUMBER_FORMATS = ["@", "@", "@", "@", "yyyy-mm-dd hh:mm:ss"];
 const ARCHIVE_EVERY_MINUTES = 5;
@@ -274,7 +274,7 @@ function archiveDispatching() {
         return index;
       });
 
-    // getLastRow() would count the Scan time formula's empty rows, so find the last pallet instead.
+    // getLastRow() would count the scan time formulas' empty rows, so find the last pallet instead.
     const palletColumn = history.getRange(1, 1, history.getMaxRows(), 1).getDisplayValues();
     let lastRow = palletColumn.length;
     while (lastRow > 0 && palletColumn[lastRow - 1][0] === "") lastRow -= 1;
