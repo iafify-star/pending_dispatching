@@ -39,3 +39,9 @@ python -m http.server 8000
 3. انسخ رابط الـ Web app اللي بينتهي بـ `/exec` وحطه في `SCAN_LOG_ENDPOINT` في أول `app.js`.
 
 لو عدلت الكود بعد كده، اختار **Deploy > Manage deployments** وعدّل نفس الـ deployment بنسخة جديدة عشان الرابط يفضل زي ما هو.
+
+## أرشيف البالتات وتبويب scan_check
+
+البالتة بتختفي من تبويب `dispatching` بعد ما تتشحن، عشان كده `archiveDispatching` في نفس السكربت بتنسخ كل بالتة وتوت جداد لتبويب `dispatching_history` كل 5 دقايق، ومبتمسحش ولا بتعدّل أي صف فيه. شغّل `installArchiveTrigger` مرة واحدة من محرر Apps Script ووافق على الصلاحيات، وهي بتعمل الـ trigger وبتأرشف على طول.
+
+تبويب `scan_check` كله معادلات. بيقارن البالتات اللي اتعملت في اليوم المختار (حسب `pallet_creation_date`، من `dispatching` و`dispatching_history` مع بعض) باللي اتسكان منها في `pallet_scan`، لكل فرع ولكل بالتة. اليوم بيتختار من خانة **Date** (Today أو أي يوم قبل كده)، وبيبدأ من الساعة اللي في خانة **Day starts at**.

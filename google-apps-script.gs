@@ -1,6 +1,10 @@
 const SPREADSHEET_ID = "1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU";
 const LOG_SHEET_NAME = "pallet_scan";
 const DATA_SHEET_NAME = "dispatching";
+const HISTORY_SHEET_NAME = "dispatching_history";
+const HISTORY_HEADERS = ["Pallet", "Tote", "Branch", "Staging location", "Pallet created", "First seen"];
+const HISTORY_NUMBER_FORMATS = ["@", "@", "@", "@", "yyyy-mm-dd hh:mm:ss", "yyyy-mm-dd hh:mm:ss"];
+const ARCHIVE_EVERY_MINUTES = 5;
 const LOG_HEADERS = [
   "Scan date", "Scan time", "Type", "Pallet", "Tote", "Branch", "Reviewer", "Shift", "Stage", "Note",
 ];
@@ -238,6 +242,65 @@ function writeScanRow(sheet, row, scan, note = "", palletColor = PALLET_ROW_COLO
       TEXT_COLOR, TEXT_COLOR, TEXT_COLOR, detailColor, TEXT_COLOR,
       detailColor, detailColor, detailColor, detailColor, TEXT_COLOR,
     ]]);
+}
+
+// Run once from the Apps Script editor: it archives now and then every few minutes.
+function installArchiveTrigger() {
+  for (const trigger of ScriptApp.getProjectTriggers()) {
+    if (trigger.getHandlerFunction() === "archiveDispatching") ScriptApp.deleteTrigger(trigger);
+  }
+  ScriptApp.newTrigger("archiveDispatching").timeBased().everyMinutes(ARCHIVE_EVERY_MINUTES).create();
+  archiveDispatching();
+}
+
+// Shipped pallets leave the dispatching tab, so new pallet and tote pairs are copied to
+// dispatching_history to keep every day's pallets. Rows there are only ever added.
+function archiveDispatching() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const source = spreadsheet.getSheetByName(DATA_SHEET_NAME);
+    const history = spreadsheet.getSheetByName(HISTORY_SHEET_NAME) || spreadsheet.insertSheet(HISTORY_SHEET_NAME);
+    if (!source) throw new Error(`The ${DATA_SHEET_NAME} tab was not found.`);
+
+    const rows = source.getDataRange().getValues();
+    const headers = rows.shift().map(String);
+    const columns = ["palletBarcode", "containerBarcode", "destination_darkstore", "staging_location", "pallet_creation_date"]
+      .map((name) => {
+        const index = headers.indexOf(name);
+        if (index < 0) throw new Error(`The ${DATA_SHEET_NAME} tab has no ${name} column.`);
+        return index;
+      });
+
+    if (history.getLastRow() === 0) {
+      history.getRange(1, 1, 1, HISTORY_HEADERS.length).setValues([HISTORY_HEADERS]).setFontWeight("bold");
+      history.setFrozenRows(1);
+    }
+    const lastRow = history.getLastRow();
+    const known = new Set(lastRow > 1
+      ? history.getRange(2, 1, lastRow - 1, 2).getDisplayValues().map(([pallet, tote]) => `${pallet}|${tote}`.toUpperCase())
+      : []);
+
+    const now = new Date();
+    const additions = [];
+    for (const row of rows) {
+      const [pallet, tote, branch, location, created] = columns.map((index) => row[index]);
+      const key = `${pallet}|${tote}`.toUpperCase();
+      if (!pallet || !tote || known.has(key)) continue;
+      known.add(key);
+      additions.push([String(pallet), String(tote), branch, location, created, now]);
+    }
+    if (!additions.length) return;
+
+    const extraRows = lastRow + additions.length - history.getMaxRows();
+    if (extraRows > 0) history.insertRowsAfter(history.getMaxRows(), extraRows);
+    history.getRange(lastRow + 1, 1, additions.length, HISTORY_HEADERS.length)
+      .setNumberFormats(additions.map(() => HISTORY_NUMBER_FORMATS))
+      .setValues(additions);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function asPlainText(value) {
