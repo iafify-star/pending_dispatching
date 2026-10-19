@@ -1,9 +1,14 @@
 const SPREADSHEET_ID = "1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU";
 const LOG_SHEET_NAME = "pallet_scan";
 const DATA_SHEET_NAME = "dispatching";
-const LOG_HEADERS = ["Scan date", "Scan time", "Type", "Pallet", "Tote", "Branch", "Reviewer"];
-const LOG_NUMBER_FORMATS = ["yyyy-mm-dd", "hh:mm:ss", "@", "@", "@", "@", "@"];
+const LOG_HEADERS = [
+  "Scan date", "Scan time", "Type", "Pallet", "Tote", "Branch", "Reviewer", "Shift", "Stage", "Note",
+];
+const LOG_NUMBER_FORMATS = ["yyyy-mm-dd", "hh:mm:ss", "@", "@", "@", "@", "@", "@", "@", "@"];
+const SHIFTS = ["Night", "Morning", "Middle"];
+const STAGES = ["Review", "Dispatch"];
 const PALLET_ROW_COLOR = "#fff2cc";
+const REPEAT_ROW_COLOR = "#f9cb9c";
 const TOTE_DETAIL_COLOR = "#888888";
 const TEXT_COLOR = "#000000";
 const MAX_SCAN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -54,7 +59,7 @@ function doPost(event) {
     if (!cache.get(requestId)) {
       const sheet = getLogSheet();
       if (scan.eventType === "pallet") {
-        writeScanRow(sheet, sheet.getLastRow() + 1, scan);
+        writePalletRow(sheet, scan);
       } else {
         writeToteRow(sheet, scan);
       }
@@ -81,6 +86,9 @@ function validateScan(parameters) {
   const containerBarcode = String(parameters.containerBarcode || "").trim();
   const branch = String(parameters.branch || "").trim().slice(0, 200);
   const reviewer = String(parameters.reviewer || "").trim().slice(0, 100);
+  // Scans queued before these fields existed have none, so an unknown value is left blank.
+  const shift = SHIFTS.includes(parameters.shift) ? parameters.shift : "";
+  const stage = STAGES.includes(parameters.stage) ? parameters.stage : "";
 
   if (eventType !== "pallet" && eventType !== "tote") {
     throw new Error("Invalid scan type.");
@@ -101,6 +109,8 @@ function validateScan(parameters) {
     containerBarcode,
     branch,
     reviewer,
+    shift,
+    stage,
     scannedAt: parseScanTime(parameters.scannedAt),
   };
 }
@@ -136,6 +146,38 @@ function getLogSheet() {
   return sheet;
 }
 
+// Earlier rows are never changed. A pallet scanned before gets a colored row with a note
+// saying how many times it was scanned and who scanned it last.
+function writePalletRow(sheet, scan) {
+  const lastRow = sheet.getLastRow();
+  const palletKey = scan.palletBarcode.toUpperCase();
+  let earlierScans = 0;
+  let previous = null;
+
+  if (lastRow > 1) {
+    const rows = sheet.getRange(2, 1, lastRow - 1, LOG_HEADERS.length).getValues();
+    for (const row of rows) {
+      if (row[2] !== "Pallet" || String(row[3]).toUpperCase() !== palletKey) continue;
+      earlierScans += 1;
+      previous = row;
+    }
+  }
+
+  if (!previous) {
+    writeScanRow(sheet, lastRow + 1, scan, "", PALLET_ROW_COLOR);
+    return;
+  }
+  writeScanRow(sheet, lastRow + 1, scan, describePreviousScan(sheet, earlierScans + 1, previous), REPEAT_ROW_COLOR);
+}
+
+function describePreviousScan(sheet, scanNumber, previous) {
+  const scannedAt = previous[0] instanceof Date
+    ? Utilities.formatDate(previous[0], sheet.getParent().getSpreadsheetTimeZone(), "yyyy-MM-dd HH:mm")
+    : String(previous[0]);
+  const details = [scannedAt, previous[8], previous[7], previous[6]].filter(Boolean).join(", ");
+  return `Scan ${scanNumber} of this pallet. Previous: ${details}`;
+}
+
 // Put the tote under its pallet's latest block, so each pallet's totes stay together
 // even when several devices are scanning at once.
 function writeToteRow(sheet, scan) {
@@ -169,7 +211,7 @@ function writeToteRow(sheet, scan) {
   writeScanRow(sheet, blockEndRow + 1, scan);
 }
 
-function writeScanRow(sheet, row, scan) {
+function writeScanRow(sheet, row, scan, note = "", palletColor = PALLET_ROW_COLOR) {
   if (row > sheet.getMaxRows()) {
     sheet.insertRowsAfter(sheet.getMaxRows(), row - sheet.getMaxRows());
   }
@@ -186,10 +228,16 @@ function writeScanRow(sheet, row, scan) {
       asPlainText(scan.containerBarcode),
       asPlainText(scan.branch),
       asPlainText(scan.reviewer),
+      scan.shift,
+      scan.stage,
+      note,
     ]])
     .setFontWeight(isPallet ? "bold" : "normal")
-    .setBackground(isPallet ? PALLET_ROW_COLOR : null)
-    .setFontColors([[TEXT_COLOR, TEXT_COLOR, TEXT_COLOR, detailColor, TEXT_COLOR, detailColor, detailColor]]);
+    .setBackground(isPallet ? palletColor : null)
+    .setFontColors([[
+      TEXT_COLOR, TEXT_COLOR, TEXT_COLOR, detailColor, TEXT_COLOR,
+      detailColor, detailColor, detailColor, detailColor, TEXT_COLOR,
+    ]]);
 }
 
 function asPlainText(value) {

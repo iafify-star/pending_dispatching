@@ -29,6 +29,17 @@ const translations = {
     reviewerPlaceholder: "اكتب اسمك",
     reviewerRequired: "اكتب اسم المراجع الأول قبل ما تسكان البالتة.",
     reviewerDetail: "المراجع: {name}",
+    shiftLabel: "الشيفت",
+    shiftPlaceholder: "اختار الشيفت",
+    shiftNight: "Night · من 2 لـ 8 الصبح",
+    shiftMorning: "Morning · من 8 الصبح لـ 5",
+    shiftMiddle: "Middle · من 5 لـ 2 بالليل",
+    shiftRequired: "اختار الشيفت الأول قبل ما تسكان البالتة.",
+    stageLabel: "المرحلة",
+    stagePlaceholder: "اختار المرحلة",
+    stageReview: "Review · مراجعة",
+    stageDispatch: "Dispatch · ديسبتش",
+    stageRequired: "اختار المرحلة (Review ولا Dispatch) قبل ما تسكان البالتة.",
     scanHint: "استخدم جهاز الاسكانر أو اكتب الكود واضغط Enter.",
     currentPallet: "البالتة الحالية",
     changePallet: "تغيير البالتة",
@@ -116,6 +127,17 @@ const translations = {
     reviewerPlaceholder: "Type your name",
     reviewerRequired: "Enter the reviewer name before scanning a pallet.",
     reviewerDetail: "Reviewer: {name}",
+    shiftLabel: "Shift",
+    shiftPlaceholder: "Choose a shift",
+    shiftNight: "Night · 02:00–08:00",
+    shiftMorning: "Morning · 08:00–17:00",
+    shiftMiddle: "Middle · 17:00–02:00",
+    shiftRequired: "Choose the shift before scanning a pallet.",
+    stageLabel: "Stage",
+    stagePlaceholder: "Choose a stage",
+    stageReview: "Review",
+    stageDispatch: "Dispatch",
+    stageRequired: "Choose the stage (Review or Dispatch) before scanning a pallet.",
     scanHint: "Use a barcode scanner, or type the code and press Enter.",
     currentPallet: "Current pallet",
     changePallet: "Change pallet",
@@ -194,6 +216,8 @@ const elements = {
   notice: document.querySelector("#notice"),
   palletScanCard: document.querySelector("#palletScanCard"),
   reviewerInput: document.querySelector("#reviewerInput"),
+  shiftSelect: document.querySelector("#shiftSelect"),
+  stageSelect: document.querySelector("#stageSelect"),
   palletForm: document.querySelector("#palletForm"),
   palletInput: document.querySelector("#palletInput"),
   palletResult: document.querySelector("#palletResult"),
@@ -223,6 +247,9 @@ let isSendingScanLog = false;
 let scanLogRetryTimer = 0;
 let scanLogError = "";
 let reviewerName = (localStorage.getItem("shipping-check-reviewer") || "").trim();
+// Shift and stage are kept only for this tab, so the next shift has to pick its own.
+let selectedShift = sessionStorage.getItem("shipping-check-shift") || "";
+let selectedStage = sessionStorage.getItem("shipping-check-stage") || "";
 let currentLanguage = localStorage.getItem("shipping-check-language") === "en" ? "en" : "ar";
 let currentTheme = localStorage.getItem("shipping-check-theme") === "dark" ? "dark" : "light";
 
@@ -488,6 +515,8 @@ function queueScanLog(eventType, pallet, containerBarcode = "") {
     containerBarcode,
     branch: pallet.destination,
     reviewer: reviewerName,
+    shift: selectedShift,
+    stage: selectedStage,
     scannedAt: new Date().toISOString(),
   });
   saveScanLogQueue();
@@ -619,6 +648,7 @@ function renderPallet(pallet) {
   const details = [pallet.location, pallet.destination].filter(Boolean);
   if (!details.length) details.push(t("palletDetailsFallback"));
   if (reviewerName) details.push(t("reviewerDetail", { name: reviewerName }));
+  details.push(...[selectedShift, selectedStage].filter(Boolean));
   elements.palletDetails.textContent = details.join(" · ");
   elements.containerCount.textContent = t("palletCount", { count: pallet.containers.size });
 
@@ -711,6 +741,16 @@ elements.palletForm.addEventListener("submit", (event) => {
   if (!reviewerName) {
     showNotice("reviewerRequired");
     elements.reviewerInput.focus();
+    return;
+  }
+  if (!selectedShift) {
+    showNotice("shiftRequired");
+    elements.shiftSelect.focus();
+    return;
+  }
+  if (!selectedStage) {
+    showNotice("stageRequired");
+    elements.stageSelect.focus();
     return;
   }
 
@@ -809,6 +849,18 @@ elements.reviewerInput.addEventListener("input", () => {
   if (reviewerName && elements.notice.dataset.messageKey === "reviewerRequired") clearNotice();
 });
 
+elements.shiftSelect.addEventListener("change", () => {
+  selectedShift = elements.shiftSelect.value;
+  sessionStorage.setItem("shipping-check-shift", selectedShift);
+  if (selectedShift && elements.notice.dataset.messageKey === "shiftRequired") clearNotice();
+});
+
+elements.stageSelect.addEventListener("change", () => {
+  selectedStage = elements.stageSelect.value;
+  sessionStorage.setItem("shipping-check-stage", selectedStage);
+  if (selectedStage && elements.notice.dataset.messageKey === "stageRequired") clearNotice();
+});
+
 // Enter moves on to the pallet field, so the next scan lands in the right place.
 elements.reviewerInput.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
@@ -836,6 +888,10 @@ elements.themeButton.addEventListener("click", () => {
 });
 
 elements.reviewerInput.value = reviewerName;
+elements.shiftSelect.value = selectedShift;
+elements.stageSelect.value = selectedStage;
+selectedShift = elements.shiftSelect.value;
+selectedStage = elements.stageSelect.value;
 applyTheme();
 refreshSheet();
 sendScanLogQueue();
