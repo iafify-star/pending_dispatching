@@ -42,6 +42,6 @@ python -m http.server 8000
 
 ## أرشيف البالتات وتبويب scan_check
 
-البالتة بتختفي من تبويب `dispatching` بعد ما تتشحن، عشان كده `archiveDispatching` في نفس السكربت بتنسخ كل بالتة وتوت جداد لتبويب `dispatching_history` كل 5 دقايق، ومبتمسحش ولا بتعدّل أي صف فيه. شغّل `installArchiveTrigger` مرة واحدة من محرر Apps Script ووافق على الصلاحيات، وهي بتعمل الـ trigger وبتأرشف على طول.
+البالتة بتختفي من تبويب `dispatching` بعد ما تتشحن، عشان كده `archiveDispatching` في نفس السكربت بتنسخ كل بالتة وتوت جداد لتبويب `dispatching_history` كل 5 دقايق، ومبتمسحش ولا بتعدّل أي صف فيه. شغّل `installArchiveTrigger` مرة واحدة من محرر Apps Script ووافق على الصلاحيات، وهي بتعمل الـ trigger وبتأرشف على طول. السكربت بيكتب الأعمدة من A لـ E بس. عمود `Scan time` (F) معادلة بتجيب أول وقت اتسكان فيه التوت على البالتة دي من `pallet_scan`، وبيفضل فاضي لو التوت لسه متسكانش.
 
 تبويب `scan_check` كله معادلات. بيقارن البالتات اللي اتعملت في اليوم المختار (حسب `pallet_creation_date`، من `dispatching` و`dispatching_history` مع بعض) باللي اتسكان منها في `pallet_scan`، لكل فرع ولكل بالتة. اليوم بيتختار من خانة **Date** (Today أو أي يوم قبل كده)، وبيبدأ من الساعة اللي في خانة **Day starts at**.

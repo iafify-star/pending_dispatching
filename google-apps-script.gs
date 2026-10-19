@@ -2,8 +2,9 @@ const SPREADSHEET_ID = "1wx8Ps4-mTL9MpdbwV3FTv8gGEqwuQL_LisSoyUBu6ZU";
 const LOG_SHEET_NAME = "pallet_scan";
 const DATA_SHEET_NAME = "dispatching";
 const HISTORY_SHEET_NAME = "dispatching_history";
-const HISTORY_HEADERS = ["Pallet", "Tote", "Branch", "Staging location", "Pallet created", "First seen"];
-const HISTORY_NUMBER_FORMATS = ["@", "@", "@", "@", "yyyy-mm-dd hh:mm:ss", "yyyy-mm-dd hh:mm:ss"];
+// Column F (Scan time) is a formula in the sheet, so the script writes only these columns.
+const HISTORY_HEADERS = ["Pallet", "Tote", "Branch", "Staging location", "Pallet created"];
+const HISTORY_NUMBER_FORMATS = ["@", "@", "@", "@", "yyyy-mm-dd hh:mm:ss"];
 const ARCHIVE_EVERY_MINUTES = 5;
 const LOG_HEADERS = [
   "Scan date", "Scan time", "Type", "Pallet", "Tote", "Branch", "Reviewer", "Shift", "Stage", "Note",
@@ -273,23 +274,26 @@ function archiveDispatching() {
         return index;
       });
 
-    if (history.getLastRow() === 0) {
+    // getLastRow() would count the Scan time formula's empty rows, so find the last pallet instead.
+    const palletColumn = history.getRange(1, 1, history.getMaxRows(), 1).getDisplayValues();
+    let lastRow = palletColumn.length;
+    while (lastRow > 0 && palletColumn[lastRow - 1][0] === "") lastRow -= 1;
+    if (lastRow === 0) {
       history.getRange(1, 1, 1, HISTORY_HEADERS.length).setValues([HISTORY_HEADERS]).setFontWeight("bold");
       history.setFrozenRows(1);
+      lastRow = 1;
     }
-    const lastRow = history.getLastRow();
     const known = new Set(lastRow > 1
       ? history.getRange(2, 1, lastRow - 1, 2).getDisplayValues().map(([pallet, tote]) => `${pallet}|${tote}`.toUpperCase())
       : []);
 
-    const now = new Date();
     const additions = [];
     for (const row of rows) {
       const [pallet, tote, branch, location, created] = columns.map((index) => row[index]);
       const key = `${pallet}|${tote}`.toUpperCase();
       if (!pallet || !tote || known.has(key)) continue;
       known.add(key);
-      additions.push([String(pallet), String(tote), branch, location, created, now]);
+      additions.push([String(pallet), String(tote), branch, location, created]);
     }
     if (!additions.length) return;
 
