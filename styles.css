@@ -505,6 +505,30 @@ a:focus-visible {
   color: #8b6413;
 }
 
+.review-warning {
+  margin-top: 14px;
+  padding: 13px 15px;
+  border: 1px solid #f0e1ba;
+  border-radius: 11px;
+  background: #fff9e9;
+  color: #8b6413;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.7;
+  outline: none;
+}
+
+.review-warning p {
+  margin: 0 0 11px;
+  overflow-wrap: anywhere;
+}
+
+.review-warning-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .list-heading {
   margin-top: 26px;
   padding-bottom: 10px;
@@ -786,6 +810,7 @@ html[data-theme="dark"] .assignment-details dd {
   color: #f0e3df;
 }
 
+html[data-theme="dark"] .review-warning,
 html[data-theme="dark"] .scan-feedback[data-state="warning"] {
   border-color: #66552f;
   background: #342d1b;

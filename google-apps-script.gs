@@ -22,6 +22,10 @@ const REQUEST_CACHE_SECONDS = 6 * 60 * 60;
 
 function doGet(event) {
   const parameters = event && event.parameter ? event.parameter : {};
+  if (parameters.action === "palletHistory") {
+    return createJsonResponse(getPalletHistory(String(parameters.pallet || "").trim()));
+  }
+
   const callback = String(parameters.callback || "");
   if (!/^shippingSheetCallback_\d+_[a-zA-Z0-9_]+$/.test(callback)) {
     throw new Error("Invalid sheet data callback.");
@@ -118,6 +122,48 @@ function validateScan(parameters) {
     stage,
     scannedAt: parseScanTime(parameters.scannedAt),
   };
+}
+
+// Earlier Review scans of a pallet, so the site can warn before it is reviewed again.
+// Scans with no stage were made before the stage existed and count as Review.
+// getValues reads every row, whatever filter someone has on the tab.
+function getPalletHistory(palletBarcode) {
+  try {
+    if (!palletBarcode || palletBarcode.length > 200) throw new Error("A valid pallet barcode is required.");
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(LOG_SHEET_NAME);
+    const lastRow = sheet ? sheet.getLastRow() : 0;
+    const rows = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, LOG_HEADERS.length).getValues() : [];
+    const palletKey = palletBarcode.toUpperCase();
+    const totes = new Set();
+    let reviews = 0;
+    let lastReview = null;
+
+    for (const row of rows) {
+      if (String(row[3]).toUpperCase() !== palletKey || row[8] === "Dispatch") continue;
+      if (row[2] === "Pallet") {
+        reviews += 1;
+        lastReview = row;
+      } else if (row[2] === "Tote") {
+        totes.add(String(row[4]));
+      }
+    }
+
+    return {
+      success: true,
+      reviews,
+      totes: [...totes],
+      lastReview: lastReview && {
+        scannedAt: lastReview[0] instanceof Date
+          ? Utilities.formatDate(lastReview[0], sheet.getParent().getSpreadsheetTimeZone(), "yyyy-MM-dd HH:mm")
+          : String(lastReview[0]),
+        reviewer: String(lastReview[6]),
+        shift: String(lastReview[7]),
+      },
+    };
+  } catch (error) {
+    console.error(error);
+    return { success: false, message: error instanceof Error ? error.message : "Could not read the scan log." };
+  }
 }
 
 // Use the time the scan happened on the device, unless it is missing or implausible.

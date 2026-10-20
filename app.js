@@ -7,6 +7,7 @@ const SCAN_LOG_ENDPOINT =
 const SCAN_LOG_QUEUE_KEY = "shipping-scan-log-queue";
 const SCAN_LOG_RETRY_MS = 10_000;
 const SCAN_LOG_TIMEOUT_MS = 30_000;
+const HISTORY_TIMEOUT_MS = 20_000;
 const translations = {
   ar: {
     pageTitle: "مراجعة شحن البالتات",
@@ -40,6 +41,11 @@ const translations = {
     stageReview: "Review · مراجعة",
     stageDispatch: "Dispatch · ديسبتش",
     stageRequired: "اختار المرحلة (Review ولا Dispatch) قبل ما تسكان البالتة.",
+    reviewChecking: "بنتأكد إذا كانت البالتة اتراجعت قبل كده...",
+    reviewedBefore: "البالتة {pallet} اتراجعت قبل كده. آخر مراجعة: {details}. اتسكان عليها {scanned} من {total} توت.",
+    reviewCheckFailed: "مقدرناش نتأكد إذا كانت البالتة {pallet} اتراجعت قبل كده. {message}",
+    reviewContinue: "كمّل المراجعة",
+    reviewCancel: "رجوع",
     scanHint: "استخدم جهاز الاسكانر أو اكتب الكود واضغط Enter.",
     currentPallet: "البالتة الحالية",
     changePallet: "تغيير البالتة",
@@ -138,6 +144,11 @@ const translations = {
     stageReview: "Review",
     stageDispatch: "Dispatch",
     stageRequired: "Choose the stage (Review or Dispatch) before scanning a pallet.",
+    reviewChecking: "Checking whether this pallet was reviewed before...",
+    reviewedBefore: "Pallet {pallet} was reviewed before. Last review: {details}. {scanned} of {total} totes were scanned on it.",
+    reviewCheckFailed: "Couldn't check whether pallet {pallet} was reviewed before. {message}",
+    reviewContinue: "Continue review",
+    reviewCancel: "Go back",
     scanHint: "Use a barcode scanner, or type the code and press Enter.",
     currentPallet: "Current pallet",
     changePallet: "Change pallet",
@@ -219,6 +230,10 @@ const elements = {
   shiftSelect: document.querySelector("#shiftSelect"),
   stageSelect: document.querySelector("#stageSelect"),
   palletForm: document.querySelector("#palletForm"),
+  reviewWarning: document.querySelector("#reviewWarning"),
+  reviewWarningText: document.querySelector("#reviewWarningText"),
+  reviewContinueButton: document.querySelector("#reviewContinueButton"),
+  reviewCancelButton: document.querySelector("#reviewCancelButton"),
   palletInput: document.querySelector("#palletInput"),
   palletResult: document.querySelector("#palletResult"),
   selectedPallet: document.querySelector("#selectedPallet"),
@@ -244,6 +259,8 @@ let isRefreshing = false;
 let hasFreshSheet = false;
 let scanLogQueue = loadScanLogQueue();
 let isSendingScanLog = false;
+let isCheckingHistory = false;
+let pendingReviewPallet = null;
 let scanLogRetryTimer = 0;
 let scanLogError = "";
 let reviewerName = (localStorage.getItem("shipping-check-reviewer") || "").trim();
@@ -290,6 +307,7 @@ function applyLanguage() {
     elements.notice.textContent = t(elements.notice.dataset.messageKey, JSON.parse(elements.notice.dataset.messageValues || "{}"));
   }
   if (elements.scanFeedback.dataset.messageKey) renderScanFeedback();
+  if (elements.reviewWarning.dataset.messageKey) renderReviewWarning();
   document.querySelector('meta[name="theme-color"]').content = currentTheme === "dark" ? "#111a17" : "#102a27";
 }
 
@@ -589,6 +607,132 @@ function renderScanLogState() {
   elements.scanLogText.textContent = t(messageKey, { count: scanLogQueue.length });
 }
 
+async function fetchPalletHistory(barcode) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), HISTORY_TIMEOUT_MS);
+  try {
+    const url = `${SCAN_LOG_ENDPOINT}?action=palletHistory&pallet=${encodeURIComponent(barcode)}`;
+    const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(t("scanLogHttpError", { status: response.status }));
+    }
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.message || t("scanLogUnknownError"));
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(t("scanLogTimeout"));
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function formatDateTime(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+// Joins the sheet's answer with Review scans of this pallet still waiting in this
+// device's queue, which the sheet hasn't seen yet. Scans with no stage count as Review.
+function earlierReviews(pallet, history) {
+  const palletKey = normalizeBarcode(pallet.barcode);
+  const queued = scanLogQueue.filter((entry) =>
+    normalizeBarcode(entry.palletBarcode) === palletKey && entry.stage !== "Dispatch");
+  const queuedPallets = queued.filter((entry) => entry.eventType === "pallet");
+  const toteKeys = new Set([
+    ...history.totes,
+    ...queued.filter((entry) => entry.eventType === "tote").map((entry) => entry.containerBarcode),
+  ].map(containerMatchKey));
+
+  const latestQueued = queuedPallets[queuedPallets.length - 1];
+  const last = latestQueued
+    ? { scannedAt: formatDateTime(new Date(latestQueued.scannedAt)), reviewer: latestQueued.reviewer, shift: latestQueued.shift }
+    : history.lastReview;
+  return {
+    reviewed: history.reviews + queuedPallets.length > 0,
+    // Each part is isolated so a date like 2026-10-20 12:27 isn't reordered inside Arabic text.
+    details: last
+      ? [last.scannedAt, last.reviewer, last.shift].filter(Boolean).map((part) => `⁨${part}⁩`).join(" · ")
+      : "",
+    scanned: [...pallet.containers.keys()].filter((key) => toteKeys.has(key)).length,
+    total: pallet.containers.size,
+  };
+}
+
+function renderReviewWarning() {
+  const { messageKey, messageValues } = elements.reviewWarning.dataset;
+  elements.reviewWarningText.textContent = t(messageKey, JSON.parse(messageValues || "{}"));
+}
+
+// The reviewer has to pick Continue or Go back. Focus sits on the box itself, so a
+// barcode scanned by mistake lands nowhere instead of pressing a button.
+function showReviewWarning(pallet, messageKey, values) {
+  pendingReviewPallet = pallet;
+  elements.reviewWarning.dataset.messageKey = messageKey;
+  elements.reviewWarning.dataset.messageValues = JSON.stringify(values);
+  renderReviewWarning();
+  elements.reviewWarning.hidden = false;
+  elements.palletInput.disabled = true;
+  elements.palletForm.querySelector('button[type="submit"]').disabled = true;
+  elements.reviewWarning.focus();
+}
+
+function hideReviewWarning() {
+  pendingReviewPallet = null;
+  elements.reviewWarning.hidden = true;
+  delete elements.reviewWarning.dataset.messageKey;
+  delete elements.reviewWarning.dataset.messageValues;
+  elements.palletInput.disabled = false;
+  elements.palletForm.querySelector('button[type="submit"]').disabled = false;
+}
+
+function startPallet(pallet) {
+  currentPalletBarcode = pallet.barcode;
+  scannedContainers.clear();
+  elements.palletInput.value = "";
+  elements.palletScanCard.hidden = true;
+  elements.scanFeedback.hidden = true;
+  renderPallet(pallet);
+  queueScanLog("pallet", pallet);
+  elements.containerInput.focus();
+}
+
+async function checkEarlierReviews(pallet) {
+  isCheckingHistory = true;
+  elements.palletForm.querySelector('button[type="submit"]').disabled = true;
+  showNotice("reviewChecking", {}, "info");
+  try {
+    const history = SCAN_LOG_ENDPOINT
+      ? await fetchPalletHistory(pallet.barcode)
+      : { reviews: 0, totes: [], lastReview: null };
+    const earlier = earlierReviews(pallet, history);
+    clearNotice();
+    if (!earlier.reviewed) {
+      startPallet(pallet);
+      return;
+    }
+    showReviewWarning(pallet, "reviewedBefore", {
+      pallet: pallet.barcode,
+      details: earlier.details,
+      scanned: earlier.scanned,
+      total: earlier.total,
+    });
+  } catch (error) {
+    clearNotice();
+    showReviewWarning(pallet, "reviewCheckFailed", {
+      pallet: pallet.barcode,
+      message: error instanceof Error ? error.message : t("scanLogUnknownError"),
+    });
+  } finally {
+    isCheckingHistory = false;
+    if (!pendingReviewPallet) elements.palletForm.querySelector('button[type="submit"]').disabled = false;
+  }
+}
+
 function formatTime(date) {
   return new Intl.DateTimeFormat(currentLanguage === "ar" ? "ar-EG" : "en-GB", {
     hour: "2-digit",
@@ -734,6 +878,7 @@ function renderScanFeedback() {
 
 elements.palletForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  if (isCheckingHistory || pendingReviewPallet) return;
   if (!hasFreshSheet) {
     showNotice("freshRequiredPallet");
     return;
@@ -768,14 +913,29 @@ elements.palletForm.addEventListener("submit", (event) => {
   }
 
   clearNotice();
-  currentPalletBarcode = pallet.barcode;
-  scannedContainers.clear();
+  // Only a Review is checked against earlier reviews; Dispatch scans a reviewed pallet on purpose.
+  if (selectedStage === "Review") {
+    checkEarlierReviews(pallet);
+  } else {
+    startPallet(pallet);
+  }
+});
+
+elements.reviewContinueButton.addEventListener("click", () => {
+  const pallet = pendingReviewPallet && pallets.get(normalizeBarcode(pendingReviewPallet.barcode));
+  hideReviewWarning();
+  if (!pallet) {
+    showNotice("unavailablePallet");
+    elements.palletInput.focus();
+    return;
+  }
+  startPallet(pallet);
+});
+
+elements.reviewCancelButton.addEventListener("click", () => {
+  hideReviewWarning();
   elements.palletInput.value = "";
-  elements.palletScanCard.hidden = true;
-  elements.scanFeedback.hidden = true;
-  renderPallet(pallet);
-  queueScanLog("pallet", pallet);
-  elements.containerInput.focus();
+  elements.palletInput.focus();
 });
 
 elements.containerForm.addEventListener("submit", (event) => {

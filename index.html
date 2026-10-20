@@ -78,6 +78,13 @@
           <button class="button button-primary" type="submit" data-i18n="palletSubmit">تأكيد البالتة</button>
         </form>
         <p class="scan-hint" data-i18n="scanHint">استخدم جهاز الاسكانر أو اكتب الكود واضغط Enter.</p>
+        <div class="review-warning" id="reviewWarning" role="alertdialog" aria-labelledby="reviewWarningText" tabindex="-1" hidden>
+          <p id="reviewWarningText"></p>
+          <div class="review-warning-actions">
+            <button class="button button-primary" id="reviewContinueButton" type="button" data-i18n="reviewContinue">كمّل المراجعة</button>
+            <button class="button button-secondary" id="reviewCancelButton" type="button" data-i18n="reviewCancel">رجوع</button>
+          </div>
+        </div>
       </section>
 
       <section class="result-card" id="palletResult" aria-live="polite" hidden>
