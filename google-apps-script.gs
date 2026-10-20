@@ -25,6 +25,9 @@ function doGet(event) {
   if (parameters.action === "palletHistory") {
     return createJsonResponse(getPalletHistory(String(parameters.pallet || "").trim()));
   }
+  if (parameters.action === "toteHistory") {
+    return createJsonResponse(getToteHistory(String(parameters.tote || "").trim()));
+  }
 
   const callback = String(parameters.callback || "");
   if (!/^shippingSheetCallback_\d+_[a-zA-Z0-9_]+$/.test(callback)) {
@@ -153,9 +156,7 @@ function getPalletHistory(palletBarcode) {
       reviews,
       totes: [...totes],
       lastReview: lastReview && {
-        scannedAt: lastReview[0] instanceof Date
-          ? Utilities.formatDate(lastReview[0], sheet.getParent().getSpreadsheetTimeZone(), "yyyy-MM-dd HH:mm")
-          : String(lastReview[0]),
+        scannedAt: formatSheetTime(lastReview[0], sheet.getParent().getSpreadsheetTimeZone()),
         reviewer: String(lastReview[6]),
         shift: String(lastReview[7]),
       },
@@ -164,6 +165,78 @@ function getPalletHistory(palletBarcode) {
     console.error(error);
     return { success: false, message: error instanceof Error ? error.message : "Could not read the scan log." };
   }
+}
+
+// Every pallet a tote was on and every scan of it, to trace a tote a branch reports missing.
+// Totes are reused, so the version suffix (_v22) is ignored and older uses show up too.
+function getToteHistory(toteBarcode) {
+  try {
+    if (!toteBarcode || toteBarcode.length > 200) throw new Error("A valid tote barcode is required.");
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const timeZone = spreadsheet.getSpreadsheetTimeZone();
+    const toteKey = toteMatchKey(toteBarcode);
+    const assignments = new Map();
+    const addAssignment = (pallet, tote, branch, created) => {
+      const palletKey = String(pallet).toUpperCase();
+      if (!pallet || assignments.has(palletKey)) return;
+      assignments.set(palletKey, {
+        pallet: String(pallet),
+        tote: String(tote),
+        branch: String(branch ?? ""),
+        created: created == null ? "" : formatSheetTime(created, timeZone),
+      });
+    };
+
+    // Archive first, then dispatching for pallets the archive hasn't copied yet.
+    const history = spreadsheet.getSheetByName(HISTORY_SHEET_NAME);
+    if (history && history.getLastRow() > 1) {
+      for (const row of history.getRange(2, 1, history.getLastRow() - 1, HISTORY_HEADERS.length).getValues()) {
+        if (row[0] && toteMatchKey(row[1]) === toteKey) addAssignment(row[0], row[1], row[2], row[4]);
+      }
+    }
+    const source = spreadsheet.getSheetByName(DATA_SHEET_NAME);
+    if (source) {
+      const rows = source.getDataRange().getValues();
+      const headers = rows.shift().map(String);
+      const [pallet, tote, branch, created] = ["palletBarcode", "containerBarcode", "destination_darkstore", "pallet_creation_date"]
+        .map((name) => headers.indexOf(name));
+      if (pallet >= 0 && tote >= 0) {
+        for (const row of rows) {
+          if (toteMatchKey(row[tote]) === toteKey) addAssignment(row[pallet], row[tote], row[branch], row[created]);
+        }
+      }
+    }
+
+    const scans = [];
+    const log = spreadsheet.getSheetByName(LOG_SHEET_NAME);
+    if (log && log.getLastRow() > 1) {
+      for (const row of log.getRange(2, 1, log.getLastRow() - 1, LOG_HEADERS.length).getValues()) {
+        if (row[2] !== "Tote" || toteMatchKey(row[4]) !== toteKey) continue;
+        scans.push({
+          pallet: String(row[3]),
+          tote: String(row[4]),
+          branch: String(row[5]),
+          scannedAt: formatSheetTime(row[0], timeZone),
+          reviewer: String(row[6]),
+          shift: String(row[7]),
+          stage: String(row[8]) || "Review",
+        });
+      }
+    }
+
+    return { success: true, assignments: [...assignments.values()], scans };
+  } catch (error) {
+    console.error(error);
+    return { success: false, message: error instanceof Error ? error.message : "Could not read the sheet." };
+  }
+}
+
+function toteMatchKey(value) {
+  return String(value).trim().toUpperCase().replace(/_V\d+$/, "");
+}
+
+function formatSheetTime(value, timeZone) {
+  return value instanceof Date ? Utilities.formatDate(value, timeZone, "yyyy-MM-dd HH:mm") : String(value);
 }
 
 // Use the time the scan happened on the device, unless it is missing or implausible.
@@ -222,9 +295,7 @@ function writePalletRow(sheet, scan) {
 }
 
 function describePreviousScan(sheet, scanNumber, previous) {
-  const scannedAt = previous[0] instanceof Date
-    ? Utilities.formatDate(previous[0], sheet.getParent().getSpreadsheetTimeZone(), "yyyy-MM-dd HH:mm")
-    : String(previous[0]);
+  const scannedAt = formatSheetTime(previous[0], sheet.getParent().getSpreadsheetTimeZone());
   const details = [scannedAt, previous[8], previous[7], previous[6]].filter(Boolean).join(", ");
   return `Scan ${scanNumber} of this pallet. Previous: ${details}`;
 }

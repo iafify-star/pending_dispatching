@@ -8,6 +8,7 @@ const SCAN_LOG_QUEUE_KEY = "shipping-scan-log-queue";
 const SCAN_LOG_RETRY_MS = 10_000;
 const SCAN_LOG_TIMEOUT_MS = 30_000;
 const HISTORY_TIMEOUT_MS = 20_000;
+const LOOKUP_GROUP_LIMIT = 5;
 const translations = {
   ar: {
     pageTitle: "مراجعة شحن البالتات",
@@ -46,6 +47,22 @@ const translations = {
     reviewCheckFailed: "مقدرناش نتأكد إذا كانت البالتة {pallet} اتراجعت قبل كده. {message}",
     reviewContinue: "كمّل المراجعة",
     reviewCancel: "رجوع",
+    leaveWarning: "لسه {remaining} من {total} توت متسكانوش على البالتة {pallet}. متأكد إنك عايز تسيبها؟",
+    leaveStay: "كمّل الاسكان",
+    leaveConfirm: "سيبها وغيّر البالتة",
+    lookupHeading: "بحث عن توت ميسنج",
+    lookupDescription: "اسكان أو اكتب كود التوت عشان تعرف كان على أنهي بالتة ولأنهي فرع، واتسكان إمتى ومين سكانه.",
+    lookupLabel: "كود التوت",
+    lookupPlaceholder: "مثال: TGI64D09HAXEEG",
+    lookupSubmit: "بحث",
+    lookupSearching: "بندوّر على التوت {tote}...",
+    lookupScanned: "آخر مرة التوت {tote} كان على البالتة {pallet} بتاعة فرع {branch}، واتسكان عليها، يعني خرج من عندنا على البالتة بتاعته.",
+    lookupNotScanned: "آخر مرة التوت {tote} كان على البالتة {pallet} بتاعة فرع {branch}، ومتسكانش عليها خالص.",
+    lookupUnknown: "الكود {tote} مش موجود في الأرشيف ولا في الاسكانات.",
+    lookupFailed: "مقدرناش ندوّر على التوت {tote}. {message}",
+    lookupCreated: "البالتة اتعملت {created} · التوت {tote}",
+    lookupNoScans: "متسكانش على البالتة دي.",
+    lookupOlder: "وفيه {count} بالتة أقدم كان عليها التوت ده.",
     scanHint: "استخدم جهاز الاسكانر أو اكتب الكود واضغط Enter.",
     currentPallet: "البالتة الحالية",
     changePallet: "تغيير البالتة",
@@ -149,6 +166,22 @@ const translations = {
     reviewCheckFailed: "Couldn't check whether pallet {pallet} was reviewed before. {message}",
     reviewContinue: "Continue review",
     reviewCancel: "Go back",
+    leaveWarning: "{remaining} of {total} totes on pallet {pallet} haven't been scanned. Leave this pallet anyway?",
+    leaveStay: "Keep scanning",
+    leaveConfirm: "Leave and change pallet",
+    lookupHeading: "Find a missing tote",
+    lookupDescription: "Scan or type a tote barcode to see which pallet and branch it was on, and when it was scanned and by whom.",
+    lookupLabel: "Tote barcode",
+    lookupPlaceholder: "Example: TGI64D09HAXEEG",
+    lookupSubmit: "Search",
+    lookupSearching: "Looking up tote {tote}...",
+    lookupScanned: "Tote {tote} was last on pallet {pallet} for {branch} and was scanned on it, so it left us on its own pallet.",
+    lookupNotScanned: "Tote {tote} was last on pallet {pallet} for {branch} and was never scanned on it.",
+    lookupUnknown: "Barcode {tote} isn't in the archive or the scans.",
+    lookupFailed: "Couldn't look up tote {tote}. {message}",
+    lookupCreated: "Pallet created {created} · tote {tote}",
+    lookupNoScans: "Not scanned on this pallet.",
+    lookupOlder: "{count} older pallets also had this tote.",
     scanHint: "Use a barcode scanner, or type the code and press Enter.",
     currentPallet: "Current pallet",
     changePallet: "Change pallet",
@@ -234,6 +267,13 @@ const elements = {
   reviewWarningText: document.querySelector("#reviewWarningText"),
   reviewContinueButton: document.querySelector("#reviewContinueButton"),
   reviewCancelButton: document.querySelector("#reviewCancelButton"),
+  leaveWarning: document.querySelector("#leaveWarning"),
+  leaveWarningText: document.querySelector("#leaveWarningText"),
+  leaveStayButton: document.querySelector("#leaveStayButton"),
+  leaveConfirmButton: document.querySelector("#leaveConfirmButton"),
+  lookupForm: document.querySelector("#lookupForm"),
+  lookupInput: document.querySelector("#lookupInput"),
+  lookupResult: document.querySelector("#lookupResult"),
   palletInput: document.querySelector("#palletInput"),
   palletResult: document.querySelector("#palletResult"),
   selectedPallet: document.querySelector("#selectedPallet"),
@@ -261,6 +301,9 @@ let scanLogQueue = loadScanLogQueue();
 let isSendingScanLog = false;
 let isCheckingHistory = false;
 let pendingReviewPallet = null;
+let isLookingUp = false;
+let lastLookup = null;
+let audioContext = null;
 let scanLogRetryTimer = 0;
 let scanLogError = "";
 let reviewerName = (localStorage.getItem("shipping-check-reviewer") || "").trim();
@@ -308,6 +351,8 @@ function applyLanguage() {
   }
   if (elements.scanFeedback.dataset.messageKey) renderScanFeedback();
   if (elements.reviewWarning.dataset.messageKey) renderReviewWarning();
+  if (elements.leaveWarning.dataset.messageKey) renderLeaveWarning();
+  if (lastLookup) renderLookup();
   document.querySelector('meta[name="theme-color"]').content = currentTheme === "dark" ? "#111a17" : "#102a27";
 }
 
@@ -607,11 +652,12 @@ function renderScanLogState() {
   elements.scanLogText.textContent = t(messageKey, { count: scanLogQueue.length });
 }
 
-async function fetchPalletHistory(barcode) {
+// Read-only questions to the Apps Script (palletHistory, toteHistory).
+async function fetchScriptJson(parameters) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), HISTORY_TIMEOUT_MS);
   try {
-    const url = `${SCAN_LOG_ENDPOINT}?action=palletHistory&pallet=${encodeURIComponent(barcode)}`;
+    const url = `${SCAN_LOG_ENDPOINT}?${new URLSearchParams(parameters)}`;
     const response = await fetch(url, { cache: "no-store", signal: controller.signal });
     if (!response.ok) {
       throw new Error(t("scanLogHttpError", { status: response.status }));
@@ -690,6 +736,169 @@ function hideReviewWarning() {
   elements.palletForm.querySelector('button[type="submit"]').disabled = false;
 }
 
+function renderLeaveWarning() {
+  const { messageKey, messageValues } = elements.leaveWarning.dataset;
+  elements.leaveWarningText.textContent = t(messageKey, JSON.parse(messageValues || "{}"));
+}
+
+// Same pattern as the review prompt: the tote field is locked and focus sits on the box,
+// so a tote scanned while it is open can't be read as an answer.
+function showLeaveWarning(pallet, remaining) {
+  elements.leaveWarning.dataset.messageKey = "leaveWarning";
+  elements.leaveWarning.dataset.messageValues = JSON.stringify({
+    remaining,
+    total: pallet.containers.size,
+    pallet: pallet.barcode,
+  });
+  renderLeaveWarning();
+  elements.leaveWarning.hidden = false;
+  elements.containerInput.disabled = true;
+  elements.containerForm.querySelector('button[type="submit"]').disabled = true;
+  elements.changePalletButton.disabled = true;
+  elements.leaveWarning.focus();
+}
+
+function hideLeaveWarning() {
+  elements.leaveWarning.hidden = true;
+  delete elements.leaveWarning.dataset.messageKey;
+  delete elements.leaveWarning.dataset.messageValues;
+  elements.containerInput.disabled = false;
+  elements.containerForm.querySelector('button[type="submit"]').disabled = false;
+  elements.changePalletButton.disabled = false;
+}
+
+function leavePallet() {
+  hideLeaveWarning();
+  currentPalletBarcode = "";
+  scannedContainers.clear();
+  elements.palletResult.hidden = true;
+  elements.palletScanCard.hidden = false;
+  elements.scanFeedback.hidden = true;
+  elements.palletInput.focus();
+}
+
+// A short low double buzz and a vibration, so a wrong tote is noticed without looking at the screen.
+function signalWrongTote() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      if (!audioContext) audioContext = new AudioContextClass();
+      if (audioContext.state === "suspended") audioContext.resume();
+      const start = audioContext.currentTime;
+      for (const [offset, frequency] of [[0, 300], [0.22, 200]]) {
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.type = "square";
+        oscillator.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.0001, start + offset);
+        gain.gain.exponentialRampToValueAtTime(0.25, start + offset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.18);
+        oscillator.connect(gain).connect(audioContext.destination);
+        oscillator.start(start + offset);
+        oscillator.stop(start + offset + 0.2);
+      }
+    }
+  } catch {
+    // The sound is extra; the error message on screen still shows.
+  }
+  if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
+}
+
+// One entry per pallet the tote was on, newest first, each with that pallet's scans of it.
+function buildToteGroups(result) {
+  const groups = new Map();
+  for (const assignment of result.assignments) {
+    groups.set(normalizeBarcode(assignment.pallet), { ...assignment, scans: [] });
+  }
+  for (const scan of result.scans) {
+    const key = normalizeBarcode(scan.pallet);
+    if (!groups.has(key)) {
+      groups.set(key, { pallet: scan.pallet, tote: scan.tote, branch: scan.branch, created: "", scans: [] });
+    }
+    groups.get(key).scans.push(scan);
+  }
+  const latest = (group) => [group.created, ...group.scans.map((scan) => scan.scannedAt)].sort().pop() || "";
+  return [...groups.values()]
+    .map((group) => ({ ...group, scans: group.scans.sort((a, b) => a.scannedAt.localeCompare(b.scannedAt)) }))
+    .sort((a, b) => latest(b).localeCompare(latest(a)));
+}
+
+const isolate = (text) => `⁨${text}⁩`;
+
+function renderLookup() {
+  const result = elements.lookupResult;
+  result.replaceChildren();
+  result.hidden = !lastLookup;
+  if (!lastLookup) return;
+
+  const tote = isolate(lastLookup.query);
+  const status = document.createElement("div");
+  status.className = "scan-feedback";
+  result.append(status);
+
+  if (lastLookup.loading) {
+    status.dataset.state = "warning";
+    status.textContent = t("lookupSearching", { tote });
+    return;
+  }
+  if (lastLookup.error) {
+    status.dataset.state = "error";
+    status.textContent = t("lookupFailed", { tote, message: lastLookup.error });
+    return;
+  }
+
+  const groups = lastLookup.groups;
+  if (!groups.length) {
+    status.dataset.state = "error";
+    status.textContent = t("lookupUnknown", { tote });
+    return;
+  }
+  const [newest] = groups;
+  status.dataset.state = newest.scans.length ? "success" : "error";
+  status.textContent = t(newest.scans.length ? "lookupScanned" : "lookupNotScanned", {
+    tote,
+    pallet: isolate(newest.pallet),
+    branch: isolate(newest.branch),
+  });
+
+  const list = document.createElement("ul");
+  list.className = "lookup-groups";
+  for (const group of groups.slice(0, LOOKUP_GROUP_LIMIT)) {
+    const item = document.createElement("li");
+    item.dataset.state = group.scans.length ? "scanned" : "missing";
+    const heading = document.createElement("h3");
+    heading.textContent = [group.pallet, group.branch].filter(Boolean).map(isolate).join(" · ");
+    const created = document.createElement("p");
+    created.textContent = t("lookupCreated", { created: isolate(group.created || "-"), tote: isolate(group.tote) });
+    item.append(heading, created);
+
+    if (group.scans.length) {
+      const scans = document.createElement("ul");
+      scans.className = "lookup-scans";
+      for (const scan of group.scans) {
+        const line = document.createElement("li");
+        line.textContent = [scan.stage, scan.scannedAt, scan.reviewer, scan.shift].filter(Boolean).map(isolate).join(" · ");
+        scans.append(line);
+      }
+      item.append(scans);
+    } else {
+      const missing = document.createElement("p");
+      missing.dataset.state = "missing";
+      missing.textContent = t("lookupNoScans");
+      item.append(missing);
+    }
+    list.append(item);
+  }
+  result.append(list);
+
+  if (groups.length > LOOKUP_GROUP_LIMIT) {
+    const older = document.createElement("p");
+    older.className = "scan-hint";
+    older.textContent = t("lookupOlder", { count: groups.length - LOOKUP_GROUP_LIMIT });
+    result.append(older);
+  }
+}
+
 function startPallet(pallet) {
   currentPalletBarcode = pallet.barcode;
   scannedContainers.clear();
@@ -707,7 +916,7 @@ async function checkEarlierReviews(pallet) {
   showNotice("reviewChecking", {}, "info");
   try {
     const history = SCAN_LOG_ENDPOINT
-      ? await fetchPalletHistory(pallet.barcode)
+      ? await fetchScriptJson({ action: "palletHistory", pallet: pallet.barcode })
       : { reviews: 0, totes: [], lastReview: null };
     const earlier = earlierReviews(pallet, history);
     clearNotice();
@@ -763,6 +972,7 @@ async function refreshSheet() {
     if (currentPalletBarcode) {
       const pallet = pallets.get(normalizeBarcode(currentPalletBarcode));
       if (!pallet) {
+        hideLeaveWarning();
         currentPalletBarcode = "";
         scannedContainers.clear();
         elements.palletScanCard.hidden = false;
@@ -969,6 +1179,7 @@ elements.containerForm.addEventListener("submit", (event) => {
     } else {
       showScanFeedback("unknownTote", { container: scannedBarcode }, "error");
     }
+    signalWrongTote();
     return;
   }
 
@@ -995,12 +1206,44 @@ elements.containerForm.addEventListener("submit", (event) => {
 });
 
 elements.changePalletButton.addEventListener("click", () => {
-  currentPalletBarcode = "";
-  scannedContainers.clear();
-  elements.palletResult.hidden = true;
-  elements.palletScanCard.hidden = false;
-  elements.scanFeedback.hidden = true;
-  elements.palletInput.focus();
+  const pallet = pallets.get(normalizeBarcode(currentPalletBarcode));
+  const remaining = pallet ? pallet.containers.size - scannedContainers.size : 0;
+  if (remaining > 0) {
+    showLeaveWarning(pallet, remaining);
+    return;
+  }
+  leavePallet();
+});
+
+elements.leaveStayButton.addEventListener("click", () => {
+  hideLeaveWarning();
+  elements.containerInput.focus();
+});
+
+elements.leaveConfirmButton.addEventListener("click", leavePallet);
+
+elements.lookupForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const query = elements.lookupInput.value.trim();
+  if (!query || isLookingUp) return;
+
+  const submitButton = elements.lookupForm.querySelector('button[type="submit"]');
+  isLookingUp = true;
+  submitButton.disabled = true;
+  lastLookup = { query, loading: true };
+  renderLookup();
+  try {
+    if (!SCAN_LOG_ENDPOINT) throw new Error(t("scanLogNotConfigured"));
+    const result = await fetchScriptJson({ action: "toteHistory", tote: query });
+    lastLookup = { query, groups: buildToteGroups(result) };
+  } catch (error) {
+    lastLookup = { query, error: error instanceof Error ? error.message : t("scanLogUnknownError") };
+  } finally {
+    isLookingUp = false;
+    submitButton.disabled = false;
+  }
+  renderLookup();
+  elements.lookupInput.select();
 });
 
 elements.reviewerInput.addEventListener("input", () => {

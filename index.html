@@ -96,6 +96,13 @@
           </div>
           <button class="button button-secondary" id="changePalletButton" type="button" data-i18n="changePallet">تغيير البالتة</button>
         </div>
+        <div class="review-warning" id="leaveWarning" role="alertdialog" aria-labelledby="leaveWarningText" tabindex="-1" hidden>
+          <p id="leaveWarningText"></p>
+          <div class="review-warning-actions">
+            <button class="button button-primary" id="leaveStayButton" type="button" data-i18n="leaveStay">كمّل الاسكان</button>
+            <button class="button button-secondary" id="leaveConfirmButton" type="button" data-i18n="leaveConfirm">سيبها وغيّر البالتة</button>
+          </div>
+        </div>
 
         <div class="progress-panel">
           <div class="progress-copy">
@@ -128,6 +135,23 @@
           <span id="containerCount" class="count-badge"></span>
         </div>
         <ul class="container-list" id="containerList"></ul>
+      </section>
+
+      <section class="scan-card lookup-card" aria-labelledby="lookupHeading">
+        <div class="step-heading">
+          <span class="step-number" aria-hidden="true">?</span>
+          <div>
+            <h2 id="lookupHeading" data-i18n="lookupHeading">بحث عن توت ميسنج</h2>
+            <p data-i18n="lookupDescription">اسكان أو اكتب كود التوت عشان تعرف كان على أنهي بالتة ولأنهي فرع، واتسكان إمتى ومين سكانه.</p>
+          </div>
+        </div>
+        <form id="lookupForm" class="scan-form">
+          <label class="visually-hidden" for="lookupInput" data-i18n="lookupLabel">كود التوت</label>
+          <input id="lookupInput" name="lookup" type="text" placeholder="مثال: TGI64D09HAXEEG"
+            data-i18n-placeholder="lookupPlaceholder" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+          <button class="button button-primary" type="submit" data-i18n="lookupSubmit">بحث</button>
+        </form>
+        <div class="lookup-result" id="lookupResult" aria-live="polite" hidden></div>
       </section>
 
       <footer class="footer">
