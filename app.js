@@ -9,6 +9,8 @@ const SCAN_LOG_RETRY_MS = 10_000;
 const SCAN_LOG_TIMEOUT_MS = 30_000;
 const HISTORY_TIMEOUT_MS = 20_000;
 const LOOKUP_GROUP_LIMIT = 5;
+const REVIEWER_NAMES_RETRY_MS = 10_000;
+const REVIEWER_NAMES_REFRESH_MS = 5 * 60_000;
 const ADMIN_TIMEOUT_MS = 60_000;
 // Only the session token the script hands out is kept, never the password.
 const ADMIN_TOKEN_KEY = "shipping-admin-token";
@@ -111,7 +113,7 @@ const translations = {
     tabBranches: "الفروع",
     tabAdmin: "الإدارة",
     adminTabReviewers: "المراجعين",
-    reviewerListFailed: "مقدرناش نجيب قايمة الأسماء. حدّث الصفحة.",
+    reviewerListFailed: "مقدرناش نجيب قايمة الأسماء، بنحاول تاني...",
     adminNamesHeading: "أسماء المراجعين",
     adminNamesList: "الأسماء اللي في القايمة: {names}",
     adminNewName: "اسم جديد",
@@ -308,7 +310,7 @@ const translations = {
     tabBranches: "Branches",
     tabAdmin: "Admin",
     adminTabReviewers: "Reviewers",
-    reviewerListFailed: "Couldn't load the list of names. Refresh the page.",
+    reviewerListFailed: "Couldn't load the list of names. Trying again...",
     adminNamesHeading: "Reviewer names",
     adminNamesList: "Names in the list: {names}",
     adminNewName: "New name",
@@ -498,6 +500,7 @@ let scanLogError = "";
 let reviewerName = (localStorage.getItem("shipping-check-reviewer") || "").trim();
 // The fixed list of names, kept on the device so the page works before the script answers.
 let reviewerNames = loadCachedReviewerNames();
+let reviewerNamesTimer = 0;
 let branchProgress = null;
 let branchMessage = null;
 // Shift and stage are kept only for this tab, so the next shift has to pick its own.
@@ -1182,13 +1185,18 @@ function setReviewerNames(names) {
   renderReviewerOptions();
 }
 
+// A failed request is retried soon, and the list is refreshed now and then so a name
+// added in Admin shows up on every device without a reload.
 async function loadReviewerNames() {
   if (!SCAN_LOG_ENDPOINT) return;
+  window.clearTimeout(reviewerNamesTimer);
   try {
     const result = await fetchScriptJson({ action: "reviewers" });
     setReviewerNames(result.names);
+    reviewerNamesTimer = window.setTimeout(loadReviewerNames, REVIEWER_NAMES_REFRESH_MS);
   } catch {
     if (!reviewerNames.length) showNotice("reviewerListFailed");
+    reviewerNamesTimer = window.setTimeout(loadReviewerNames, REVIEWER_NAMES_RETRY_MS);
   }
 }
 
