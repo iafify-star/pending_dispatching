@@ -9,6 +9,9 @@ const SCAN_LOG_RETRY_MS = 10_000;
 const SCAN_LOG_TIMEOUT_MS = 30_000;
 const HISTORY_TIMEOUT_MS = 20_000;
 const LOOKUP_GROUP_LIMIT = 5;
+const ADMIN_TIMEOUT_MS = 60_000;
+// Only the session token the script hands out is kept, never the password.
+const ADMIN_TOKEN_KEY = "shipping-admin-token";
 const translations = {
   ar: {
     pageTitle: "مراجعة شحن البالتات",
@@ -28,8 +31,8 @@ const translations = {
     palletPlaceholder: "مثال: FPIA1B1HNLSFJ",
     palletSubmit: "تأكيد البالتة",
     reviewerLabel: "اسم المراجع",
-    reviewerPlaceholder: "اكتب اسمك",
-    reviewerRequired: "اكتب اسم المراجع الأول قبل ما تسكان البالتة.",
+    reviewerPlaceholder: "اختار اسمك",
+    reviewerRequired: "اختار اسمك الأول قبل ما تسكان البالتة.",
     reviewerDetail: "المراجع: {name}",
     shiftLabel: "الشيفت",
     shiftPlaceholder: "اختار الشيفت",
@@ -63,6 +66,84 @@ const translations = {
     lookupCreated: "البالتة اتعملت {created} · التوت {tote}",
     lookupNoScans: "متسكانش على البالتة دي.",
     lookupOlder: "وفيه {count} بالتة أقدم كان عليها التوت ده.",
+    adminEyebrow: "لوحة الإدارة",
+    adminTitle: "أداء المراجعين",
+    adminLoginHeading: "تسجيل دخول الإدارة",
+    adminUsername: "اسم المستخدم",
+    adminPassword: "الباسورد",
+    adminLoginSubmit: "دخول",
+    adminWrongLogin: "اسم المستخدم أو الباسورد غلط.",
+    adminNotSetUp: "دخول الإدارة لسه متظبطش. لازم ADMIN_USERNAME وADMIN_PASSWORD يتحطوا في إعدادات السكربت.",
+    adminSessionEnded: "جلسة الإدارة خلصت، ادخل تاني.",
+    adminFrom: "من يوم",
+    adminTo: "لحد يوم",
+    adminShow: "عرض",
+    adminLogout: "خروج",
+    adminLoading: "بنجهّز الأرقام...",
+    adminFailed: "مقدرناش نجيب الأرقام. {message}",
+    adminEmpty: "مفيش اسكانات في الأيام دي.",
+    adminTotalReviewers: "المراجعين",
+    adminTotalPallets: "البالتات",
+    adminTotalTotes: "التوت",
+    adminTotalActive: "وقت الشغل الفعلي",
+    adminTotalIncomplete: "بالتات اتسابت ناقصة",
+    adminPallets: "البالتات",
+    adminTotes: "التوت",
+    adminFromTo: "من - لحد",
+    adminActive: "وقت الشغل الفعلي",
+    adminAvgPallet: "متوسط البالتة",
+    adminTotesPerHour: "توت في الساعة",
+    adminIncomplete: "بالتات ناقصة",
+    adminShifts: "الشيفت: {shifts} · Review: {review} · Dispatch: {dispatch}",
+    adminBranches: "الفروع: {branches}",
+    adminBranch: "{branch} ({pallets} بالتة، {totes} توت)",
+    adminDetails: "تفاصيل البالتات ({count})",
+    adminColTime: "الوقت",
+    adminColPallet: "البالتة",
+    adminColBranch: "الفرع",
+    adminColStage: "المرحلة",
+    adminColTotes: "التوت",
+    adminColMinutes: "المدة",
+    adminNote: "وقت الشغل الفعلي هو مجموع الوقت بين الاسكانات، من غير أي وقفة أطول من {minutes} دقايق. البالتة الناقصة هي اللي اتسكان عليها توت أقل من المفروض.",
+    adminHoursMinutes: "{hours}س {minutes}د",
+    adminMinutesOnly: "{minutes} د",
+    tabScan: "الاسكان",
+    tabBranches: "الفروع",
+    tabAdmin: "الإدارة",
+    adminTabReviewers: "المراجعين",
+    reviewerListFailed: "مقدرناش نجيب قايمة الأسماء. حدّث الصفحة.",
+    adminNamesHeading: "أسماء المراجعين",
+    adminNamesList: "الأسماء اللي في القايمة: {names}",
+    adminNewName: "اسم جديد",
+    adminAddName: "إضافة",
+    adminNameAdded: "اتضاف {name} للقايمة.",
+    adminNameDuplicate: "الاسم ده موجود في القايمة.",
+    adminNameInvalid: "الاسم لازم يكون من 2 لـ 60 حرف.",
+    branchesEyebrow: "تقدم المراجعة",
+    branchesTitle: "الفروع",
+    branchesRefresh: "تحديث",
+    branchesUpdated: "آخر تحديث {time}. البالتة بتتحسب خلصت لما كل التوت بتاعها يتسكان Review.",
+    branchesLoading: "بنجيب تقدم الفروع...",
+    branchesFailed: "مقدرناش نجيب تقدم الفروع. {message}",
+    branchesEmpty: "مفيش بالتات مستنية في dispatching دلوقتي.",
+    branchTotalBranches: "الفروع",
+    branchTotalDone: "بالتات اتراجعت",
+    branchTotalLeft: "بالتات فاضلة",
+    branchTotalTotesDone: "توت اتسكان",
+    branchTotalTotesLeft: "توت فاضل",
+    branchPallets: "البالتات",
+    branchPalletsValue: "{done} من {total}",
+    branchPalletsLeft: "بالتات فاضلة",
+    branchTotes: "التوت",
+    branchTotesLeft: "توت فاضل",
+    branchDone: "الفرع ده خلص.",
+    branchDetails: "البالتات الفاضلة ({count})",
+    branchColPallet: "البالتة",
+    branchColLocation: "المكان",
+    branchColStatus: "الحالة",
+    branchColTotes: "التوت",
+    branchNotStarted: "لسه متراجعتش",
+    branchIncomplete: "ناقصة",
     scanHint: "استخدم جهاز الاسكانر أو اكتب الكود واضغط Enter.",
     currentPallet: "البالتة الحالية",
     changePallet: "تغيير البالتة",
@@ -147,8 +228,8 @@ const translations = {
     palletPlaceholder: "Example: FPIA1B1HNLSFJ",
     palletSubmit: "Confirm pallet",
     reviewerLabel: "Reviewer name",
-    reviewerPlaceholder: "Type your name",
-    reviewerRequired: "Enter the reviewer name before scanning a pallet.",
+    reviewerPlaceholder: "Choose your name",
+    reviewerRequired: "Choose your name before scanning a pallet.",
     reviewerDetail: "Reviewer: {name}",
     shiftLabel: "Shift",
     shiftPlaceholder: "Choose a shift",
@@ -182,6 +263,84 @@ const translations = {
     lookupCreated: "Pallet created {created} · tote {tote}",
     lookupNoScans: "Not scanned on this pallet.",
     lookupOlder: "{count} older pallets also had this tote.",
+    adminEyebrow: "Admin",
+    adminTitle: "Reviewer performance",
+    adminLoginHeading: "Admin login",
+    adminUsername: "Username",
+    adminPassword: "Password",
+    adminLoginSubmit: "Log in",
+    adminWrongLogin: "Wrong username or password.",
+    adminNotSetUp: "Admin login isn't set up yet. ADMIN_USERNAME and ADMIN_PASSWORD have to be added to the script properties.",
+    adminSessionEnded: "The admin session ended. Log in again.",
+    adminFrom: "From",
+    adminTo: "To",
+    adminShow: "Show",
+    adminLogout: "Log out",
+    adminLoading: "Building the report...",
+    adminFailed: "Couldn't load the report. {message}",
+    adminEmpty: "No scans on these days.",
+    adminTotalReviewers: "Reviewers",
+    adminTotalPallets: "Pallets",
+    adminTotalTotes: "Totes",
+    adminTotalActive: "Working time",
+    adminTotalIncomplete: "Pallets left incomplete",
+    adminPallets: "Pallets",
+    adminTotes: "Totes",
+    adminFromTo: "From - to",
+    adminActive: "Working time",
+    adminAvgPallet: "Average pallet",
+    adminTotesPerHour: "Totes per hour",
+    adminIncomplete: "Incomplete pallets",
+    adminShifts: "Shift: {shifts} · Review: {review} · Dispatch: {dispatch}",
+    adminBranches: "Branches: {branches}",
+    adminBranch: "{branch} ({pallets} pallets, {totes} totes)",
+    adminDetails: "Pallet details ({count})",
+    adminColTime: "Time",
+    adminColPallet: "Pallet",
+    adminColBranch: "Branch",
+    adminColStage: "Stage",
+    adminColTotes: "Totes",
+    adminColMinutes: "Duration",
+    adminNote: "Working time adds up the time between scans and leaves out any pause longer than {minutes} minutes. An incomplete pallet had fewer totes scanned than it should have.",
+    adminHoursMinutes: "{hours}h {minutes}m",
+    adminMinutesOnly: "{minutes} min",
+    tabScan: "Scanning",
+    tabBranches: "Branches",
+    tabAdmin: "Admin",
+    adminTabReviewers: "Reviewers",
+    reviewerListFailed: "Couldn't load the list of names. Refresh the page.",
+    adminNamesHeading: "Reviewer names",
+    adminNamesList: "Names in the list: {names}",
+    adminNewName: "New name",
+    adminAddName: "Add",
+    adminNameAdded: "{name} was added to the list.",
+    adminNameDuplicate: "That name is already in the list.",
+    adminNameInvalid: "A name needs 2 to 60 characters.",
+    branchesEyebrow: "Review progress",
+    branchesTitle: "Branches",
+    branchesRefresh: "Refresh",
+    branchesUpdated: "Updated {time}. A pallet counts as done when all its totes were scanned in Review.",
+    branchesLoading: "Loading branch progress...",
+    branchesFailed: "Couldn't load branch progress. {message}",
+    branchesEmpty: "No pallets are waiting in dispatching right now.",
+    branchTotalBranches: "Branches",
+    branchTotalDone: "Pallets reviewed",
+    branchTotalLeft: "Pallets left",
+    branchTotalTotesDone: "Totes scanned",
+    branchTotalTotesLeft: "Totes left",
+    branchPallets: "Pallets",
+    branchPalletsValue: "{done} of {total}",
+    branchPalletsLeft: "Pallets left",
+    branchTotes: "Totes",
+    branchTotesLeft: "Totes left",
+    branchDone: "This branch is done.",
+    branchDetails: "Pallets left ({count})",
+    branchColPallet: "Pallet",
+    branchColLocation: "Location",
+    branchColStatus: "Status",
+    branchColTotes: "Totes",
+    branchNotStarted: "Not reviewed yet",
+    branchIncomplete: "Incomplete",
     scanHint: "Use a barcode scanner, or type the code and press Enter.",
     currentPallet: "Current pallet",
     changePallet: "Change pallet",
@@ -259,7 +418,7 @@ const elements = {
   scanLogText: document.querySelector("#scanLogText"),
   notice: document.querySelector("#notice"),
   palletScanCard: document.querySelector("#palletScanCard"),
-  reviewerInput: document.querySelector("#reviewerInput"),
+  reviewerSelect: document.querySelector("#reviewerSelect"),
   shiftSelect: document.querySelector("#shiftSelect"),
   stageSelect: document.querySelector("#stageSelect"),
   palletForm: document.querySelector("#palletForm"),
@@ -274,6 +433,34 @@ const elements = {
   lookupForm: document.querySelector("#lookupForm"),
   lookupInput: document.querySelector("#lookupInput"),
   lookupResult: document.querySelector("#lookupResult"),
+  scanView: document.querySelector("#scanView"),
+  viewTabs: [...document.querySelectorAll(".view-tab[data-view]")],
+  adminTabs: [...document.querySelectorAll(".view-tab[data-admin-tab]")],
+  adminBranches: document.querySelector("#adminBranches"),
+  adminReviewersSection: document.querySelector("#adminReviewersSection"),
+  branchRefreshButton: document.querySelector("#branchRefreshButton"),
+  branchUpdated: document.querySelector("#branchUpdated"),
+  branchStatus: document.querySelector("#branchStatus"),
+  branchTotals: document.querySelector("#branchTotals"),
+  branchList: document.querySelector("#branchList"),
+  adminView: document.querySelector("#adminView"),
+  adminLoginForm: document.querySelector("#adminLoginForm"),
+  adminUsername: document.querySelector("#adminUsername"),
+  adminPassword: document.querySelector("#adminPassword"),
+  adminLoginError: document.querySelector("#adminLoginError"),
+  adminPanel: document.querySelector("#adminPanel"),
+  adminFilterForm: document.querySelector("#adminFilterForm"),
+  adminFrom: document.querySelector("#adminFrom"),
+  adminTo: document.querySelector("#adminTo"),
+  adminLogoutButton: document.querySelector("#adminLogoutButton"),
+  adminStatus: document.querySelector("#adminStatus"),
+  adminTotals: document.querySelector("#adminTotals"),
+  adminNote: document.querySelector("#adminNote"),
+  adminReviewers: document.querySelector("#adminReviewers"),
+  adminNameForm: document.querySelector("#adminNameForm"),
+  adminNamesList: document.querySelector("#adminNamesList"),
+  adminNewName: document.querySelector("#adminNewName"),
+  adminNameStatus: document.querySelector("#adminNameStatus"),
   palletInput: document.querySelector("#palletInput"),
   palletResult: document.querySelector("#palletResult"),
   selectedPallet: document.querySelector("#selectedPallet"),
@@ -304,9 +491,15 @@ let pendingReviewPallet = null;
 let isLookingUp = false;
 let lastLookup = null;
 let audioContext = null;
+let adminReport = null;
+let adminMessages = {};
 let scanLogRetryTimer = 0;
 let scanLogError = "";
 let reviewerName = (localStorage.getItem("shipping-check-reviewer") || "").trim();
+// The fixed list of names, kept on the device so the page works before the script answers.
+let reviewerNames = loadCachedReviewerNames();
+let branchProgress = null;
+let branchMessage = null;
 // Shift and stage are kept only for this tab, so the next shift has to pick its own.
 let selectedShift = sessionStorage.getItem("shipping-check-shift") || "";
 let selectedStage = sessionStorage.getItem("shipping-check-stage") || "";
@@ -353,6 +546,11 @@ function applyLanguage() {
   if (elements.reviewWarning.dataset.messageKey) renderReviewWarning();
   if (elements.leaveWarning.dataset.messageKey) renderLeaveWarning();
   if (lastLookup) renderLookup();
+  renderAdminMessages();
+  if (adminReport && !elements.adminView.hidden) renderAdminReport();
+  renderReviewerOptions();
+  renderBranchStatus();
+  if (branchProgress) renderBranchProgress();
   document.querySelector('meta[name="theme-color"]').content = currentTheme === "dark" ? "#111a17" : "#102a27";
 }
 
@@ -652,19 +850,24 @@ function renderScanLogState() {
   elements.scanLogText.textContent = t(messageKey, { count: scanLogQueue.length });
 }
 
-// Read-only questions to the Apps Script (palletHistory, toteHistory).
-async function fetchScriptJson(parameters) {
+// Questions to the Apps Script: GET for the read-only lookups, POST for the admin calls
+// so a password never goes into a URL. A failed answer keeps the script's error code.
+async function fetchScriptJson(parameters, { method = "GET", timeoutMs = HISTORY_TIMEOUT_MS } = {}) {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), HISTORY_TIMEOUT_MS);
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const url = `${SCAN_LOG_ENDPOINT}?${new URLSearchParams(parameters)}`;
-    const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+    const body = new URLSearchParams(parameters);
+    const response = method === "POST"
+      ? await fetch(SCAN_LOG_ENDPOINT, { method, body, cache: "no-store", signal: controller.signal })
+      : await fetch(`${SCAN_LOG_ENDPOINT}?${body}`, { cache: "no-store", signal: controller.signal });
     if (!response.ok) {
       throw new Error(t("scanLogHttpError", { status: response.status }));
     }
     const result = await response.json();
     if (!result.success) {
-      throw new Error(result.message || t("scanLogUnknownError"));
+      const error = new Error(result.message || t("scanLogUnknownError"));
+      error.code = result.code;
+      throw error;
     }
     return result;
   } catch (error) {
@@ -899,6 +1102,369 @@ function renderLookup() {
   }
 }
 
+function localDateString(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+// Short durations keep one decimal (1.3 min); an hour or more shows hours and minutes.
+function formatMinutes(total) {
+  if (total < 60) return t("adminMinutesOnly", { minutes: Math.round(total * 10) / 10 });
+  return t("adminHoursMinutes", { hours: Math.floor(total / 60), minutes: Math.round(total % 60) });
+}
+
+// Messages are kept as keys so switching language redraws them.
+function setAdminMessage(target, messageKey, values = {}, state = "error") {
+  adminMessages[target] = messageKey ? { messageKey, values, state } : null;
+  renderAdminMessages();
+}
+
+function renderAdminMessages() {
+  for (const [target, element] of [["status", elements.adminStatus], ["login", elements.adminLoginError], ["name", elements.adminNameStatus]]) {
+    const message = adminMessages[target];
+    element.hidden = !message;
+    if (!message) continue;
+    element.dataset.state = message.state;
+    element.textContent = t(message.messageKey, message.values);
+  }
+}
+
+function showAdminLogin(messageKey) {
+  adminReport = null;
+  elements.adminPanel.hidden = true;
+  elements.adminLoginForm.hidden = false;
+  setAdminMessage("status", null);
+  setAdminMessage("login", messageKey || null);
+  elements.adminUsername.focus();
+}
+
+function showView(view) {
+  elements.scanView.hidden = view !== "scan";
+  elements.adminView.hidden = view !== "admin";
+  for (const tab of elements.viewTabs) tab.setAttribute("aria-pressed", String(tab.dataset.view === view));
+  if (view === "scan") elements.palletInput.focus();
+  if (view === "admin") openAdmin();
+}
+
+function loadCachedReviewerNames() {
+  try {
+    const names = JSON.parse(localStorage.getItem("shipping-reviewer-names") || "[]");
+    return Array.isArray(names) ? names : [];
+  } catch {
+    return [];
+  }
+}
+
+// The dropdown only offers names from the list, so the same person is always spelled the same way.
+function renderReviewerOptions() {
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = t("reviewerPlaceholder");
+  const options = reviewerNames.map((name) => {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    return option;
+  });
+  elements.reviewerSelect.replaceChildren(placeholder, ...options);
+  reviewerName = reviewerNames.includes(reviewerName) ? reviewerName : "";
+  elements.reviewerSelect.value = reviewerName;
+  elements.adminNamesList.textContent = t("adminNamesList", { names: reviewerNames.join("، ") || "-" });
+}
+
+function setReviewerNames(names) {
+  reviewerNames = names;
+  try {
+    localStorage.setItem("shipping-reviewer-names", JSON.stringify(names));
+  } catch {
+    // The list still works for this page.
+  }
+  renderReviewerOptions();
+}
+
+async function loadReviewerNames() {
+  if (!SCAN_LOG_ENDPOINT) return;
+  try {
+    const result = await fetchScriptJson({ action: "reviewers" });
+    setReviewerNames(result.names);
+  } catch {
+    if (!reviewerNames.length) showNotice("reviewerListFailed");
+  }
+}
+
+function renderBranchStatus() {
+  elements.branchStatus.hidden = !branchMessage;
+  if (!branchMessage) return;
+  elements.branchStatus.dataset.state = branchMessage.state;
+  elements.branchStatus.textContent = t(branchMessage.messageKey, branchMessage.values);
+}
+
+function showAdminTab(tab) {
+  elements.adminReviewersSection.hidden = tab !== "reviewers";
+  elements.adminBranches.hidden = tab !== "branches";
+  for (const button of elements.adminTabs) button.setAttribute("aria-pressed", String(button.dataset.adminTab === tab));
+  if (tab === "branches") loadBranchProgress();
+}
+
+async function loadBranchProgress() {
+  const token = sessionStorage.getItem(ADMIN_TOKEN_KEY);
+  if (!token) {
+    showAdminLogin();
+    return;
+  }
+  elements.branchRefreshButton.disabled = true;
+  branchMessage = { messageKey: "branchesLoading", values: {}, state: "warning" };
+  renderBranchStatus();
+  try {
+    if (!SCAN_LOG_ENDPOINT) throw new Error(t("scanLogNotConfigured"));
+    branchProgress = await fetchScriptJson({ action: "branchProgress", token }, { method: "POST", timeoutMs: ADMIN_TIMEOUT_MS });
+    branchMessage = branchProgress.branches.length ? null : { messageKey: "branchesEmpty", values: {}, state: "warning" };
+    renderBranchProgress();
+  } catch (error) {
+    if (error.code === "expired") {
+      sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+      branchMessage = null;
+      showAdminLogin("adminSessionEnded");
+      return;
+    }
+    branchMessage = { messageKey: "branchesFailed", values: { message: error instanceof Error ? error.message : "" }, state: "error" };
+  } finally {
+    elements.branchRefreshButton.disabled = false;
+    renderBranchStatus();
+  }
+}
+
+function renderBranchProgress() {
+  if (!branchProgress) return;
+  const { totals, branches, updatedAt } = branchProgress;
+  elements.branchUpdated.hidden = false;
+  elements.branchUpdated.textContent = t("branchesUpdated", { time: isolate(updatedAt) });
+
+  elements.branchTotals.replaceChildren(...[
+    ["branchTotalBranches", totals.branches],
+    ["branchTotalDone", t("branchPalletsValue", { done: totals.donePallets, total: totals.pallets })],
+    ["branchTotalLeft", totals.pallets - totals.donePallets],
+    ["branchTotalTotesDone", t("branchPalletsValue", { done: totals.doneTotes, total: totals.totes })],
+    ["branchTotalTotesLeft", totals.totes - totals.doneTotes],
+  ].map(([key, value]) => {
+    const card = document.createElement("div");
+    card.className = "admin-total";
+    const label = document.createElement("span");
+    label.textContent = t(key);
+    const number = document.createElement("strong");
+    number.textContent = value;
+    card.append(label, number);
+    return card;
+  }));
+
+  elements.branchList.replaceChildren(...branches.map((branch) => {
+    const card = document.createElement("article");
+    card.className = "reviewer-card";
+    const name = document.createElement("h3");
+    name.textContent = branch.branch;
+    const bar = document.createElement("div");
+    bar.className = "branch-bar";
+    const fill = document.createElement("span");
+    fill.style.width = `${branch.totes ? Math.round((branch.doneTotes / branch.totes) * 100) : 100}%`;
+    bar.append(fill);
+
+    const left = branch.pallets - branch.donePallets;
+    const stats = document.createElement("dl");
+    stats.className = "reviewer-stats";
+    stats.append(
+      adminStat(t("branchPallets"), t("branchPalletsValue", { done: branch.donePallets, total: branch.pallets })),
+      adminStat(t("branchPalletsLeft"), left, left > 0),
+      adminStat(t("branchTotes"), t("branchPalletsValue", { done: branch.doneTotes, total: branch.totes })),
+      adminStat(t("branchTotesLeft"), branch.totes - branch.doneTotes, branch.totes > branch.doneTotes),
+    );
+    card.append(name, bar, stats);
+
+    if (!branch.remaining.length) {
+      const done = document.createElement("p");
+      done.className = "reviewer-meta";
+      done.textContent = t("branchDone");
+      card.append(done);
+      return card;
+    }
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = t("branchDetails", { count: branch.remaining.length });
+    const wrap = document.createElement("div");
+    wrap.className = "session-table-wrap";
+    const table = document.createElement("table");
+    table.className = "session-table";
+    const head = table.createTHead().insertRow();
+    for (const key of ["branchColPallet", "branchColLocation", "branchColStatus", "branchColTotes"]) {
+      const cell = document.createElement("th");
+      cell.textContent = t(key);
+      head.append(cell);
+    }
+    const body = table.createTBody();
+    for (const pallet of branch.remaining) {
+      const row = body.insertRow();
+      row.dataset.state = "incomplete";
+      for (const value of [
+        pallet.pallet,
+        pallet.location,
+        t(pallet.scanned ? "branchIncomplete" : "branchNotStarted"),
+        t("branchPalletsValue", { done: pallet.scanned, total: pallet.expected }),
+      ]) {
+        row.insertCell().textContent = value;
+      }
+    }
+    wrap.append(table);
+    details.append(summary, wrap);
+    card.append(details);
+    return card;
+  }));
+}
+
+function openAdmin() {
+  if (!elements.adminFrom.value) elements.adminFrom.value = localDateString();
+  if (!elements.adminTo.value) elements.adminTo.value = localDateString();
+  if (!sessionStorage.getItem(ADMIN_TOKEN_KEY)) {
+    showAdminLogin();
+    return;
+  }
+  elements.adminLoginForm.hidden = true;
+  elements.adminPanel.hidden = false;
+  if (adminReport) renderAdminReport();
+  else loadAdminReport();
+}
+
+async function loadAdminReport() {
+  const token = sessionStorage.getItem(ADMIN_TOKEN_KEY);
+  if (!token) {
+    showAdminLogin();
+    return;
+  }
+  const submitButton = elements.adminFilterForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  setAdminMessage("status", "adminLoading", {}, "warning");
+  try {
+    adminReport = await fetchScriptJson(
+      { action: "adminStats", token, from: elements.adminFrom.value, to: elements.adminTo.value },
+      { method: "POST", timeoutMs: ADMIN_TIMEOUT_MS },
+    );
+    setAdminMessage("status", adminReport.reviewers.length ? null : "adminEmpty", {}, "warning");
+    renderAdminReport();
+  } catch (error) {
+    if (error.code === "expired") {
+      sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+      showAdminLogin("adminSessionEnded");
+      return;
+    }
+    setAdminMessage("status", "adminFailed", { message: error instanceof Error ? error.message : "" });
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+function adminStat(label, value, warning = false) {
+  const item = document.createElement("div");
+  if (warning) item.dataset.state = "warning";
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const detail = document.createElement("dd");
+  detail.textContent = value;
+  item.append(term, detail);
+  return item;
+}
+
+function renderAdminReport() {
+  if (!adminReport) return;
+  const { totals, reviewers, from, to, idleGapMinutes } = adminReport;
+  const oneDay = from === to;
+  const clock = (stamp) => isolate(oneDay ? stamp.slice(11) : stamp);
+
+  elements.adminTotals.replaceChildren(...[
+    ["adminTotalReviewers", totals.reviewers],
+    ["adminTotalPallets", totals.pallets],
+    ["adminTotalTotes", totals.totes],
+    ["adminTotalActive", formatMinutes(totals.activeMinutes)],
+    ["adminTotalIncomplete", totals.incompletePallets],
+  ].map(([key, value]) => {
+    const card = document.createElement("div");
+    card.className = "admin-total";
+    const label = document.createElement("span");
+    label.textContent = t(key);
+    const number = document.createElement("strong");
+    number.textContent = value;
+    card.append(label, number);
+    return card;
+  }));
+
+  elements.adminNote.hidden = false;
+  elements.adminNote.textContent = t("adminNote", { minutes: idleGapMinutes });
+
+  elements.adminReviewers.replaceChildren(...reviewers.map((reviewer) => {
+    const card = document.createElement("article");
+    card.className = "reviewer-card";
+    const name = document.createElement("h3");
+    name.textContent = reviewer.name;
+    const meta = document.createElement("p");
+    meta.className = "reviewer-meta";
+    meta.textContent = t("adminShifts", {
+      shifts: reviewer.shifts.join("، ") || "-",
+      review: reviewer.stages.Review || 0,
+      dispatch: reviewer.stages.Dispatch || 0,
+    });
+
+    const stats = document.createElement("dl");
+    stats.className = "reviewer-stats";
+    stats.append(
+      adminStat(t("adminPallets"), reviewer.pallets),
+      adminStat(t("adminTotes"), reviewer.totes),
+      adminStat(t("adminFromTo"), `${clock(reviewer.firstScan)} - ${clock(reviewer.lastScan)}`),
+      adminStat(t("adminActive"), formatMinutes(reviewer.activeMinutes)),
+      adminStat(t("adminAvgPallet"), formatMinutes(reviewer.avgMinutesPerPallet)),
+      adminStat(t("adminTotesPerHour"), reviewer.totesPerHour),
+      adminStat(t("adminIncomplete"), reviewer.incompletePallets, reviewer.incompletePallets > 0),
+    );
+
+    const branches = document.createElement("p");
+    branches.className = "reviewer-branches";
+    branches.textContent = t("adminBranches", {
+      branches: reviewer.branches
+        .map((branch) => t("adminBranch", { branch: isolate(branch.branch), pallets: branch.pallets, totes: branch.totes }))
+        .join(" · "),
+    });
+
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = t("adminDetails", { count: reviewer.sessions.length });
+    const wrap = document.createElement("div");
+    wrap.className = "session-table-wrap";
+    const table = document.createElement("table");
+    table.className = "session-table";
+    const head = table.createTHead().insertRow();
+    for (const key of ["adminColTime", "adminColPallet", "adminColBranch", "adminColStage", "adminColTotes", "adminColMinutes"]) {
+      const cell = document.createElement("th");
+      cell.textContent = t(key);
+      head.append(cell);
+    }
+    const body = table.createTBody();
+    for (const session of [...reviewer.sessions].reverse()) {
+      const row = body.insertRow();
+      if (session.expected && session.scanned < session.expected) row.dataset.state = "incomplete";
+      const values = [
+        clock(session.start),
+        session.pallet,
+        session.branch,
+        session.stage,
+        session.expected ? `${session.scanned} / ${session.expected}` : session.scanned,
+        formatMinutes(session.minutes),
+      ];
+      for (const value of values) row.insertCell().textContent = value;
+    }
+    wrap.append(table);
+    details.append(summary, wrap);
+
+    card.append(name, meta, stats, branches, details);
+    return card;
+  }));
+}
+
 function startPallet(pallet) {
   currentPalletBarcode = pallet.barcode;
   scannedContainers.clear();
@@ -1095,7 +1661,7 @@ elements.palletForm.addEventListener("submit", (event) => {
   }
   if (!reviewerName) {
     showNotice("reviewerRequired");
-    elements.reviewerInput.focus();
+    elements.reviewerSelect.focus();
     return;
   }
   if (!selectedShift) {
@@ -1246,8 +1812,8 @@ elements.lookupForm.addEventListener("submit", async (event) => {
   elements.lookupInput.select();
 });
 
-elements.reviewerInput.addEventListener("input", () => {
-  reviewerName = elements.reviewerInput.value.trim();
+elements.reviewerSelect.addEventListener("change", () => {
+  reviewerName = elements.reviewerSelect.value;
   localStorage.setItem("shipping-check-reviewer", reviewerName);
   if (reviewerName && elements.notice.dataset.messageKey === "reviewerRequired") clearNotice();
 });
@@ -1264,11 +1830,78 @@ elements.stageSelect.addEventListener("change", () => {
   if (selectedStage && elements.notice.dataset.messageKey === "stageRequired") clearNotice();
 });
 
-// Enter moves on to the pallet field, so the next scan lands in the right place.
-elements.reviewerInput.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
+for (const tab of elements.viewTabs) {
+  tab.addEventListener("click", () => showView(tab.dataset.view));
+}
+elements.branchRefreshButton.addEventListener("click", loadBranchProgress);
+for (const tab of elements.adminTabs) {
+  tab.addEventListener("click", () => showAdminTab(tab.dataset.adminTab));
+}
+
+elements.adminNameForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (reviewerName) elements.palletInput.focus();
+  const submitButton = elements.adminNameForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  try {
+    const result = await fetchScriptJson(
+      { action: "addReviewer", token: sessionStorage.getItem(ADMIN_TOKEN_KEY) || "", name: elements.adminNewName.value },
+      { method: "POST" },
+    );
+    setReviewerNames(result.names);
+    elements.adminNewName.value = "";
+    setAdminMessage("name", "adminNameAdded", { name: result.name }, "success");
+  } catch (error) {
+    if (error.code === "expired") {
+      sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+      showAdminLogin("adminSessionEnded");
+      return;
+    }
+    const messageKey = { duplicate: "adminNameDuplicate", invalidName: "adminNameInvalid" }[error.code] || "adminFailed";
+    setAdminMessage("name", messageKey, { message: error instanceof Error ? error.message : "" });
+  } finally {
+    submitButton.disabled = false;
+  }
+});
+
+elements.adminLoginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submitButton = elements.adminLoginForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  setAdminMessage("login", null);
+  try {
+    if (!SCAN_LOG_ENDPOINT) throw new Error(t("scanLogNotConfigured"));
+    const result = await fetchScriptJson(
+      { action: "adminLogin", username: elements.adminUsername.value.trim(), password: elements.adminPassword.value },
+      { method: "POST" },
+    );
+    sessionStorage.setItem(ADMIN_TOKEN_KEY, result.token);
+    elements.adminLoginForm.hidden = true;
+    elements.adminPanel.hidden = false;
+    loadAdminReport();
+  } catch (error) {
+    const messageKey = { notSetUp: "adminNotSetUp", wrongLogin: "adminWrongLogin" }[error.code] || "adminFailed";
+    setAdminMessage("login", messageKey, { message: error instanceof Error ? error.message : "" });
+  } finally {
+    elements.adminPassword.value = "";
+    submitButton.disabled = false;
+  }
+});
+
+elements.adminFilterForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  loadAdminReport();
+});
+
+elements.adminLogoutButton.addEventListener("click", () => {
+  const token = sessionStorage.getItem(ADMIN_TOKEN_KEY);
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  if (token && SCAN_LOG_ENDPOINT) {
+    fetchScriptJson({ action: "adminLogout", token }, { method: "POST" }).catch(() => {});
+  }
+  elements.adminTotals.replaceChildren();
+  elements.adminReviewers.replaceChildren();
+  elements.adminNote.hidden = true;
+  showAdminLogin();
 });
 
 elements.refreshButton.addEventListener("click", refreshSheet);
@@ -1290,7 +1923,8 @@ elements.themeButton.addEventListener("click", () => {
   applyTheme();
 });
 
-elements.reviewerInput.value = reviewerName;
+renderReviewerOptions();
+loadReviewerNames();
 elements.shiftSelect.value = selectedShift;
 elements.stageSelect.value = selectedStage;
 selectedShift = elements.shiftSelect.value;

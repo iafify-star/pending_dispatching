@@ -19,8 +19,7 @@
         </a>
         <div class="topbar-actions">
           <button class="language-button" id="languageButton" type="button" aria-label="Switch to English">English</button>
-          <button class="theme-button" id="themeButton" type="button" aria-label="Switch to dark mode">🌙</button>
-          <div class="sync-indicator" id="syncIndicator" role="status">
+          <button class="theme-button" id="themeButton" type="button" aria-label="Switch to dark mode">🌙</button>          <div class="sync-indicator" id="syncIndicator" role="status">
             <span class="sync-dot" aria-hidden="true"></span>
             <span id="syncText">جاري تحميل بيانات الشيت...</span>
           </div>
@@ -31,6 +30,12 @@
         </div>
       </header>
 
+      <nav class="view-tabs" aria-label="Sections">
+        <button class="view-tab" type="button" data-view="scan" aria-pressed="true" data-i18n="tabScan">الاسكان</button>
+        <button class="view-tab" type="button" data-view="admin" aria-pressed="false" data-i18n="tabAdmin">الإدارة</button>
+      </nav>
+
+      <div id="scanView">
       <section class="intro">
         <p class="eyebrow" data-i18n="introEyebrow">تأكيد البالتات والتوت</p>
         <h1 data-i18n="introTitle">كل حاجة جاهزة للشحن؟</h1>
@@ -47,10 +52,9 @@
             <p data-i18n="palletDescription">هنعرض لك التوت المسجل على البالتة دي.</p>
           </div>
         </div>
-        <div class="scan-form reviewer-field">
-          <label class="field-label" for="reviewerInput" data-i18n="reviewerLabel">اسم المراجع</label>
-          <input id="reviewerInput" name="reviewer" type="text" placeholder="اكتب اسمك"
-            data-i18n-placeholder="reviewerPlaceholder" autocomplete="name" maxlength="100" spellcheck="false">
+        <div class="scan-form reviewer-field choice-field">
+          <label class="field-label" for="reviewerSelect" data-i18n="reviewerLabel">اسم المراجع</label>
+          <select id="reviewerSelect" name="reviewer"></select>
         </div>
         <div class="scan-form choice-fields">
           <div class="choice-field">
@@ -152,6 +156,75 @@
           <button class="button button-primary" type="submit" data-i18n="lookupSubmit">بحث</button>
         </form>
         <div class="lookup-result" id="lookupResult" aria-live="polite" hidden></div>
+      </section>
+      </div>
+
+      <section class="admin-view" id="adminView" aria-labelledby="adminTitle" hidden>
+        <div class="admin-header">
+          <div>
+            <p class="eyebrow" data-i18n="adminEyebrow">لوحة الإدارة</p>
+            <h1 id="adminTitle" data-i18n="adminTitle">أداء المراجعين</h1>
+          </div>
+        </div>
+
+        <form class="scan-card admin-login" id="adminLoginForm">
+          <h2 data-i18n="adminLoginHeading">تسجيل دخول الإدارة</h2>
+          <label class="field-label" for="adminUsername" data-i18n="adminUsername">اسم المستخدم</label>
+          <input id="adminUsername" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+          <label class="field-label" for="adminPassword" data-i18n="adminPassword">الباسورد</label>
+          <input id="adminPassword" name="password" type="password" autocomplete="current-password" required>
+          <button class="button button-primary" type="submit" data-i18n="adminLoginSubmit">دخول</button>
+          <div class="scan-feedback" id="adminLoginError" data-state="error" role="alert" hidden></div>
+        </form>
+
+        <div id="adminPanel" hidden>
+          <nav class="view-tabs admin-tabs" aria-label="Admin sections">
+            <button class="view-tab" type="button" data-admin-tab="reviewers" aria-pressed="true" data-i18n="adminTabReviewers">المراجعين</button>
+            <button class="view-tab" type="button" data-admin-tab="branches" aria-pressed="false" data-i18n="tabBranches">الفروع</button>
+          </nav>
+
+          <div id="adminBranches" hidden>
+            <div class="admin-header branch-header">
+              <p class="scan-hint" id="branchUpdated" hidden></p>
+              <button class="button button-secondary" id="branchRefreshButton" type="button" data-i18n="branchesRefresh">تحديث</button>
+            </div>
+            <div class="scan-feedback" id="branchStatus" role="status" hidden></div>
+            <div class="admin-totals" id="branchTotals"></div>
+            <div class="admin-reviewers" id="branchList"></div>
+          </div>
+
+          <div id="adminReviewersSection">
+          <form class="scan-card admin-filters" id="adminFilterForm">
+            <div class="choice-field">
+              <label class="field-label" for="adminFrom" data-i18n="adminFrom">من يوم</label>
+              <input id="adminFrom" name="from" type="date" required>
+            </div>
+            <div class="choice-field">
+              <label class="field-label" for="adminTo" data-i18n="adminTo">لحد يوم</label>
+              <input id="adminTo" name="to" type="date" required>
+            </div>
+            <button class="button button-primary" type="submit" data-i18n="adminShow">عرض</button>
+            <button class="button button-secondary" id="adminLogoutButton" type="button" data-i18n="adminLogout">خروج</button>
+          </form>
+          <div class="scan-feedback" id="adminStatus" role="status" hidden></div>
+          <div class="admin-totals" id="adminTotals"></div>
+          <p class="scan-hint" id="adminNote" hidden></p>
+          <div class="admin-reviewers" id="adminReviewers"></div>
+
+          <form class="scan-card admin-names" id="adminNameForm">
+            <h2 data-i18n="adminNamesHeading">أسماء المراجعين</h2>
+            <p class="scan-hint" id="adminNamesList"></p>
+            <div class="admin-filters">
+              <div class="choice-field">
+                <label class="field-label" for="adminNewName" data-i18n="adminNewName">اسم جديد</label>
+                <input id="adminNewName" name="name" type="text" maxlength="60" autocomplete="off" spellcheck="false" required>
+              </div>
+              <button class="button button-primary" type="submit" data-i18n="adminAddName">إضافة</button>
+            </div>
+            <div class="scan-feedback" id="adminNameStatus" role="status" hidden></div>
+          </form>
+          </div>
+        </div>
       </section>
 
       <footer class="footer">
